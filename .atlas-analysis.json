@@ -1,0 +1,126 @@
+{
+  "projectType": "saas",
+  "projectName": "Exness Trading Platform",
+  "projectDescription": "A comprehensive cryptocurrency trading platform built with microservices architecture featuring real-time market data, order execution, and user management.",
+  "theme": "aspen",
+  "primaryColor": "#10B981",
+  "lightColor": "#34D399",
+  "darkColor": "#059669",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "architecture"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/real-time-trading",
+              "features/order-management",
+              "features/market-data",
+              "features/user-authentication"
+            ]
+          },
+          {
+            "group": "Services",
+            "pages": [
+              "services/backend",
+              "services/engine",
+              "services/websocket-server",
+              "services/price-poller",
+              "services/database-storage",
+              "services/batch-upload"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/getting-started",
+              "deployment/docker-compose",
+              "deployment/environment-variables",
+              "deployment/database-setup"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Authentication",
+            "pages": [
+              "api/auth/login",
+              "api/auth/verify"
+            ]
+          },
+          {
+            "group": "Trading",
+            "pages": [
+              "api/trade/create-order",
+              "api/trade/close-order",
+              "api/trade/get-orders"
+            ]
+          },
+          {
+            "group": "Account",
+            "pages": [
+              "api/account/get-balance",
+              "api/account/get-assets"
+            ]
+          },
+          {
+            "group": "Market Data",
+            "pages": [
+              "api/market/get-candles",
+              "api/market/websocket"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Packages",
+        "groups": [
+          {
+            "group": "Shared Packages",
+            "pages": [
+              "packages/overview",
+              "packages/config",
+              "packages/database",
+              "packages/timescaledb",
+              "packages/types",
+              "packages/ui",
+              "packages/utils"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Real-time cryptocurrency trading with live market data",
+    "High-performance in-memory order execution engine",
+    "Microservices architecture with Redis and WebSockets",
+    "Time-series data storage with TimeScaleDB",
+    "Complete user authentication and balance management",
+    "Advanced charting with multiple timeframes",
+    "Docker-ready deployment with compose orchestration"
+  ],
+  "publicApiSurface": [
+    "POST /api/v1/auth/login - User authentication via email",
+    "POST /api/v1/auth/verify - Verify authentication token",
+    "GET /api/v1/balance - Get user account balance",
+    "GET /api/v1/supportedAssets - List supported trading assets",
+    "GET /api/v1/candles - Retrieve historical candle data",
+    "POST /api/v1/trade/create - Create new trading order",
+    "POST /api/v1/trade/close - Close existing order",
+    "GET /api/v1/trade/orders - Get user's order history",
+    "WebSocket ws://localhost:7070 - Real-time price updates"
+  ]
+}
