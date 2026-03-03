@@ -1,80 +1,393 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick Start
+description: Get the Exness Trading Platform running locally with Docker Compose in minutes
 ---
 
-## Get started in three steps
+## Prerequisites
 
-Get your documentation site running locally and make your first customization.
+Before you begin, ensure you have the following installed:
 
-### Step 1: Set up your local environment
-
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+- **Docker** (v20.10+) and **Docker Compose** (v2.0+)
+- **Git** for cloning the repository
+- **Node.js 18+** or **Bun** (optional, for local development)
+- At least **4GB of available RAM** for all services
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  The platform uses Docker to orchestrate multiple services including PostgreSQL, TimeScaleDB, Redis, and MongoDB. All services are configured with health checks and automatic restarts.
 </Note>
+
+## Installation
+
+<Steps>
+  <Step title="Clone the Repository">
+    Clone the Exness Trading Platform repository from GitHub:
+
+    ```bash
+    git clone https://github.com/lakshay-goyal/Exness.git
+    cd Exness
+    ```
+  </Step>
+
+  <Step title="Configure Environment Variables">
+    Copy the example environment file and configure your settings:
+
+    ```bash
+    cp .env.example .env
+    ```
+
+    Edit the `.env` file with your configuration:
+
+    ```bash .env
+    # Redis Configuration
+    REDIS_URL=redis://localhost:6379
+
+    # Binance WebSocket API
+    BINANCE_WS_URL=wss://ws.backpack.exchange/
+
+    # TimeScaleDB Configuration
+    TIMESCALE_DB_USER=myuser
+    TIMESCALE_DB_PASSWORD=mypassword
+    TIMESCALE_DB_HOST=localhost
+    TIMESCALE_DB_PORT=5433
+    TIMESCALE_DB_NAME=mydb
+
+    # JWT Authentication
+    JWT_SECRET=mysecret
+
+    # Application URLs
+    PORT=8000
+    FRONTEND_URL=http://localhost:3001
+    BACKEND_URL=http://localhost:8000
+    WEBSOCKET_PORT=7070
+
+    # PostgreSQL Database
+    DATABASE_URL=postgresql://postgresql:postgresql@localhost:5434/exness
+
+    # MongoDB for Snapshots
+    MONGODB_URL=mongodb://admin:admin123@localhost:27017/exness_snapshots?authSource=admin
+
+    # Email Configuration (optional for production)
+    USER_EMAIL=your-email@gmail.com
+    USER_PASSWORD=your-app-password
+
+    NODE_ENV=production
+    ```
+
+    <Warning>
+      Make sure to change the `JWT_SECRET` to a secure random string in production. Never commit your `.env` file to version control.
+    </Warning>
+  </Step>
+
+  <Step title="Start the Platform with Docker Compose">
+    Launch all services using Docker Compose:
+
+    ```bash
+    docker-compose up -d
+    ```
+
+    This command will:
+    - Pull and build all required Docker images
+    - Start PostgreSQL, TimeScaleDB, Redis, and MongoDB databases
+    - Run database migrations with Prisma
+    - Launch all microservices (Backend, Engine, WebSocket Server, Price Poller, DBstorage, Batch Upload)
+    - Start the web frontend and documentation site
+
+    <Note>
+      The first startup may take 5-10 minutes as Docker downloads images and builds the services. Subsequent starts will be much faster.
+    </Note>
+  </Step>
+
+  <Step title="Verify Services Are Running">
+    Check that all services are healthy:
+
+    ```bash
+    docker-compose ps
+    ```
+
+    You should see all services with `Up` status:
+
+    ```
+    NAME                        STATUS
+    exness-backend              Up
+    exness-engine               Up
+    exness-websocket-server     Up
+    exness-price-poller         Up
+    exness-dbstorage            Up
+    exness-batch-upload         Up
+    exness-web                  Up
+    exness-postgres             Up (healthy)
+    exness-timescaledb          Up (healthy)
+    exness-redis                Up (healthy)
+    exness-mongodb              Up (healthy)
+    ```
+  </Step>
+</Steps>
+
+## Access the Platform
+
+Once all services are running, you can access:
+
+<CardGroup cols={2}>
+  <Card title="Trading Web Interface" icon="chart-line" href="http://localhost:3001">
+    Main trading platform UI at `http://localhost:3001`
+  </Card>
+  <Card title="API Backend" icon="server" href="http://localhost:8000">
+    REST API endpoints at `http://localhost:8000`
+  </Card>
+  <Card title="Documentation" icon="book" href="http://localhost:3000">
+    This documentation site at `http://localhost:3000`
+  </Card>
+  <Card title="Prisma Studio" icon="database" href="http://localhost:5555">
+    Database management UI at `http://localhost:5555`
+  </Card>
+</CardGroup>
+
+## First User Authentication
+
+Follow these steps to authenticate your first user:
+
+<Steps>
+  <Step title="Send Login Request">
+    Make a POST request to the login endpoint:
+
+    ```bash
+    curl -X POST http://localhost:8000/api/v1/auth/login \
+      -H "Content-Type: application/json" \
+      -d '{"email": "user@example.com"}'
+    ```
+
+    Or use the web interface at `http://localhost:3001` to enter your email.
+  </Step>
+
+  <Step title="Get Verification Link">
+    In development mode, the verification link is logged to the console instead of being emailed. Check the backend logs:
+
+    ```bash
+    docker logs exness-backend
+    ```
+
+    Look for a line like:
+
+    ```
+    🔗 Verification link: http://localhost:8000/api/v1/auth/verify?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+    ```
+  </Step>
+
+  <Step title="Verify and Create User">
+    Visit the verification link in your browser. This will:
+
+    ```typescript
+    // Backend verification flow (auth.routes.ts:53-106)
+    1. Verify JWT token signature
+    2. Extract userId and email from token
+    3. Send createUser message to Engine via Redis Streams
+    4. Engine creates user in-memory with initial balance
+    5. DBstorage persists user to PostgreSQL
+    6. Redirect to dashboard with auth token
+    ```
+
+    The system creates a new user with:
+    - Initial balance: $100,000 USDC (demo account)
+    - Unique user ID (UUID v4)
+    - Email address for identification
+  </Step>
+
+  <Step title="Access the Dashboard">
+    After verification, you'll be redirected to:
+
+    ```
+    http://localhost:3001/dashboard?token=<your-jwt-token>
+    ```
+
+    The web app stores the token and uses it for subsequent API requests:
+
+    ```typescript
+    // Example: Authenticated API request
+    const response = await fetch('http://localhost:8000/api/v1/balance', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    ```
+  </Step>
+</Steps>
+
+## Understanding the Data Flow
+
+Here's what happens when you authenticate:
+
+<CodeGroup>
+```typescript Backend (apps/Backend/src/routes/auth.routes.ts:13-51)
+// 1. User sends email to /api/v1/auth/login
+authRouter.post("/login", async (req: Request, res: Response) => {
+  const { email } = req.body;
+  const userId = uuidv4();
+  
+  // Create JWT token with userId and email
+  const token = jwt.sign({ userId, email }, jwtSecret);
+  
+  // In development, log verification link
+  console.log(`🔗 Verification link: ${config.BACKEND_URL}/api/v1/auth/verify?token=${token}`);
+  
+  res.json({ message: "Verification link sent", email });
+});
+```
+
+```typescript Engine (apps/Engine/src/index.ts:52-73)
+// 2. Engine receives createUser message from Redis Stream
+while (true) {
+  const result = await RedisStreams.readNextFromRedisStream(
+    constant.redisStream,
+    0, // Block indefinitely
+    {
+      consumerGroup: CONSUMER_GROUP,
+      consumerName: CONSUMER_NAME
+    }
+  );
+  
+  if (result) {
+    // Process createUser in parallel (up to 10 concurrent)
+    taskQueue.push(() => processMessage(result));
+  }
+}
+```
+
+```typescript Authentication Middleware (apps/Backend/src/middleware/auth.ts:15-66)
+// 3. Subsequent requests use JWT for authentication
+export const authMiddleware = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  const token = req.header('Authorization')?.replace('Bearer ', '');
+  
+  if (!token) {
+    return res.status(401).json({ error: 'No token provided.' });
+  }
+
+  // Verify JWT and extract user info
+  const decoded = jwt.verify(token, config.JWT_SECRET);
+  
+  // Check if user exists in database
+  const user = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { userID: decoded.userId },
+        { email: decoded.email }
+      ]
+    }
+  });
+
+  if (!user) {
+    return res.status(401).json({ error: 'User not found' });
+  }
+
+  req.user = decoded;
+  next();
+};
+```
+</CodeGroup>
+
+## Development Workflow
+
+For local development without Docker:
+
+```bash
+# Install dependencies
+bun install
+
+# Start databases (PostgreSQL, Redis, TimeScaleDB)
+docker-compose up postgres redis timescaledb -d
+
+# Run database migrations
+cd packages/db
+bun run db:deploy
+
+# Start specific service
+bun run dev --filter=backend
+bun run dev --filter=web
+bun run dev --filter=engine
+
+# Or start all services
+bun run dev
+```
+
+<Note>
+  The platform uses Turborepo for efficient monorepo management. Changes to shared packages (`@repo/config`, `@repo/db`, etc.) automatically trigger rebuilds in dependent services.
+</Note>
+
+## Common Issues
+
+<AccordionGroup>
+  <Accordion title="Services fail to start: 'port already in use'">
+    Another application is using one of the required ports. Check and stop services on:
+    - 3000 (docs)
+    - 3001 (web)
+    - 5433 (TimeScaleDB)
+    - 5434 (PostgreSQL)
+    - 6379 (Redis)
+    - 7070 (WebSocket)
+    - 8000 (Backend API)
+    - 27017 (MongoDB)
+
+    ```bash
+    # Find process using a port
+    lsof -i :8000
+    # Kill the process
+    kill -9 <PID>
+    ```
+  </Accordion>
+
+  <Accordion title="Database migration fails">
+    Ensure PostgreSQL is fully started before migrations run:
+
+    ```bash
+    # Check PostgreSQL health
+    docker-compose ps postgres
+    
+    # Manually run migrations
+    docker-compose run db-migrate
+    ```
+  </Accordion>
+
+  <Accordion title="No market data appearing">
+    The Price Poller connects to Binance WebSocket API. Check:
+    1. Internet connectivity
+    2. Price Poller logs: `docker logs exness-price-poller`
+    3. WebSocket URL in `.env` is correct
+
+    ```bash
+    # Restart Price Poller
+    docker-compose restart price-poller
+    ```
+  </Accordion>
+
+  <Accordion title="User creation hangs or times out">
+    The Engine service may not be processing Redis Streams. Check:
+
+    ```bash
+    # Check Engine logs
+    docker logs exness-engine
+    
+    # Verify Redis connection
+    docker exec exness-redis redis-cli ping
+    
+    # Check Redis streams
+    docker exec exness-redis redis-cli XINFO STREAM engine-stream
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Explore the Architecture" icon="sitemap" href="/architecture">
+    Understand how the microservices communicate
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/auth/login">
+    Learn about available API endpoints
+  </Card>
+  <Card title="Service Documentation" icon="server" href="/services/backend">
+    Deep dive into each microservice
+  </Card>
+  <Card title="Deployment Guide" icon="rocket" href="/deployment/getting-started">
+    Deploy to production environments
+  </Card>
+</CardGroup>

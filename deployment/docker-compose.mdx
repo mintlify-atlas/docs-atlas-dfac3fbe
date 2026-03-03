@@ -1,0 +1,467 @@
+---
+title: 'Docker Compose Deployment'
+description: 'Complete guide to deploying with Docker Compose'
+icon: 'docker'
+---
+
+## Overview
+
+The Exness Trading Platform uses Docker Compose to orchestrate 13 services across 4 categories: infrastructure, backend services, data processors, and frontend applications.
+
+## Service Architecture
+
+### Infrastructure Services
+
+These foundational services provide data storage and caching:
+
+```yaml
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: exness-postgres
+    ports:
+      - "5434:5432"
+  
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    container_name: exness-timescaledb
+    ports:
+      - "5433:5432"
+  
+  redis:
+    image: redis:7-alpine
+    container_name: exness-redis
+    ports:
+      - "6379:6379"
+  
+  mongodb:
+    image: mongo:7.0
+    container_name: exness-mongodb
+    ports:
+      - "27017:27017"
+```
+
+## Complete Service Overview
+
+<Steps>
+  <Step title="Infrastructure Layer">
+    <ParamField path="postgres" type="PostgreSQL 16">
+      Primary database for user accounts, orders, and transactional data.
+      - **Port**: 5434 (mapped from 5432)
+      - **Database**: exness
+      - **Credentials**: postgresql/postgresql
+    </ParamField>
+    
+    <ParamField path="timescaledb" type="TimescaleDB with PG16">
+      Time-series database for historical market data and candles.
+      - **Port**: 5433 (mapped from 5432)
+      - **Database**: mydb
+      - **Credentials**: myuser/mypassword
+    </ParamField>
+    
+    <ParamField path="redis" type="Redis 7">
+      In-memory cache for real-time data streams and pub/sub.
+      - **Port**: 6379
+      - **Use Cases**: Price streams, WebSocket pub/sub, queue management
+    </ParamField>
+    
+    <ParamField path="mongodb" type="MongoDB 7.0">
+      Document store for account snapshots and backups.
+      - **Port**: 27017
+      - **Database**: exness_snapshots
+      - **Credentials**: admin/admin123
+    </ParamField>
+  </Step>
+  
+  <Step title="Database Migration">
+    <ParamField path="db-migrate" type="One-time Service">
+      Runs Prisma migrations before application services start.
+      
+      **Execution Flow**:
+      1. Waits for PostgreSQL to be healthy
+      2. Tests database connectivity
+      3. Runs `bun run db:deploy` from packages/db
+      4. Exits successfully
+      5. Triggers dependent services to start
+      
+      **Restart Policy**: `no` (runs once per compose up)
+    </ParamField>
+  </Step>
+  
+  <Step title="Core Backend Services">
+    <ParamField path="backend" type="Express.js API">
+      REST API server for trading operations.
+      - **Port**: 8000
+      - **Dependencies**: PostgreSQL, TimescaleDB, Redis, db-migrate
+      - **Features**: Authentication, balance management, trade execution
+    </ParamField>
+    
+    <ParamField path="engine" type="In-Memory Trading Engine">
+      High-performance order processing engine.
+      - **Dependencies**: PostgreSQL, TimescaleDB, Redis, db-migrate
+      - **Features**: Sub-millisecond order execution, real-time balance updates
+    </ParamField>
+    
+    <ParamField path="websocket-server" type="WebSocket Server">
+      Real-time communication hub for live market data.
+      - **Port**: 7070
+      - **Dependencies**: Redis
+      - **Protocol**: WebSocket with Redis Pub/Sub backend
+    </ParamField>
+    
+    <ParamField path="dbstorage" type="Database Persistence">
+      Handles data persistence and retrieval operations.
+      - **Dependencies**: PostgreSQL, Redis, db-migrate
+      - **Features**: Transaction logging, order history, user data
+    </ParamField>
+  </Step>
+  
+  <Step title="Data Processing Services">
+    <ParamField path="price-poller" type="Market Data Ingestion">
+      Fetches real-time market data from Binance WebSocket API.
+      - **Dependencies**: Redis
+      - **Features**: Live price streaming, bid/ask calculation, spread management
+    </ParamField>
+    
+    <ParamField path="batch-upload" type="Historical Data Processor">
+      Processes and stores historical market data in TimescaleDB.
+      - **Dependencies**: TimescaleDB, Redis
+      - **Features**: Candle generation, data compression, retention policies
+    </ParamField>
+    
+    <ParamField path="snap-shotting" type="Snapshot Service">
+      Creates periodic snapshots of account states.
+      - **Dependencies**: MongoDB, Engine
+      - **Features**: Account backups, historical state tracking
+    </ParamField>
+  </Step>
+  
+  <Step title="Frontend Applications">
+    <ParamField path="web" type="Next.js Trading Platform">
+      Main trading interface with real-time market data.
+      - **Port**: 3001
+      - **Dependencies**: Backend, db-migrate
+      - **Features**: Trading dashboard, TradingView charts, order management
+    </ParamField>
+    
+    <ParamField path="docs" type="Documentation Site">
+      Platform documentation and API reference.
+      - **Port**: 3000
+      - **Framework**: Mintlify
+    </ParamField>
+    
+    <ParamField path="prisma-studio" type="Database GUI">
+      Visual database management interface.
+      - **Port**: 5555
+      - **Dependencies**: PostgreSQL, db-migrate
+      - **Access**: http://localhost:5555
+    </ParamField>
+  </Step>
+</Steps>
+
+## Service Dependencies
+
+The platform enforces strict service startup ordering:
+
+```mermaid
+graph TD
+    A[PostgreSQL] --> B[db-migrate]
+    C[TimescaleDB] --> D[Backend]
+    E[Redis] --> D
+    B --> D
+    B --> F[Engine]
+    A --> B
+    C --> F
+    E --> F
+    F --> G[Snap Shotting]
+    H[MongoDB] --> G
+    E --> I[WebSocket Server]
+    E --> J[Price Poller]
+    C --> K[Batch Upload]
+    E --> K
+    D --> L[Web]
+    B --> L
+    A --> M[Prisma Studio]
+    B --> M
+    A --> N[DBStorage]
+    E --> N
+    B --> N
+```
+
+## Network Configuration
+
+All services communicate over a dedicated bridge network:
+
+```yaml
+networks:
+  exness-network:
+    driver: bridge
+```
+
+<Note>
+  Services reference each other by container name (e.g., `postgres`, `redis`) within the network. External access uses mapped ports on localhost.
+</Note>
+
+## Volume Management
+
+Persistent data is stored in named volumes:
+
+```yaml
+volumes:
+  postgres_data:      # User accounts and orders
+  timescaledb_data:   # Historical market data
+  redis_data:         # Cache and streams
+  mongodb_data:       # Account snapshots
+```
+
+## Environment Variable Injection
+
+Services receive configuration through multiple methods:
+
+<CodeGroup>
+```yaml Environment File
+services:
+  backend:
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgresql://postgresql:postgresql@postgres:5432/exness
+```
+
+```yaml Override Variables
+# Docker Compose overrides .env values
+environment:
+  TIMESCALE_DB_HOST: timescaledb
+  TIMESCALE_DB_PORT: 5432
+  FRONTEND_URL: http://localhost:3001
+  BACKEND_URL: http://localhost:8000
+```
+</CodeGroup>
+
+<Warning>
+  Container-specific environment variables override `.env` file values. Database connection strings use internal service names within the Docker network.
+</Warning>
+
+## Health Check Configuration
+
+All infrastructure services include health checks:
+
+<CodeGroup>
+```yaml PostgreSQL
+healthcheck:
+  test: ["CMD-SHELL", "pg_isready -U postgresql -d exness"]
+  interval: 10s
+  timeout: 5s
+  retries: 5
+```
+
+```yaml TimescaleDB
+healthcheck:
+  test: ["CMD-SHELL", "pg_isready -U myuser -d mydb"]
+  interval: 10s
+  timeout: 5s
+  retries: 5
+```
+
+```yaml Redis
+healthcheck:
+  test: ["CMD", "redis-cli", "ping"]
+  interval: 10s
+  timeout: 5s
+  retries: 5
+```
+
+```yaml MongoDB
+healthcheck:
+  test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+  interval: 10s
+  timeout: 5s
+  retries: 5
+```
+</CodeGroup>
+
+## Common Operations
+
+### Starting the Platform
+
+<CodeGroup>
+```bash Full Stack
+# Start all services
+docker compose up -d
+
+# View logs
+docker compose logs -f
+```
+
+```bash Specific Services
+# Start only infrastructure
+docker compose up -d postgres timescaledb redis mongodb
+
+# Start backend services
+docker compose up -d backend engine websocket-server
+```
+
+```bash Development Mode
+# Start with build
+docker compose up --build
+
+# Force recreate containers
+docker compose up -d --force-recreate
+```
+</CodeGroup>
+
+### Stopping Services
+
+<CodeGroup>
+```bash Graceful Shutdown
+# Stop all services
+docker compose down
+
+# Stop specific service
+docker compose stop backend
+```
+
+```bash With Volume Cleanup
+# Remove containers and volumes (DESTRUCTIVE)
+docker compose down -v
+
+# Remove containers and networks only
+docker compose down --remove-orphans
+```
+</CodeGroup>
+
+### Viewing Logs
+
+<CodeGroup>
+```bash All Services
+# Follow all logs
+docker compose logs -f
+
+# Last 100 lines
+docker compose logs --tail=100
+```
+
+```bash Specific Service
+# Backend logs
+docker compose logs -f backend
+
+# Multiple services
+docker compose logs -f backend engine websocket-server
+```
+</CodeGroup>
+
+### Scaling Services
+
+```bash
+# Scale price poller to 3 instances
+docker compose up -d --scale price-poller=3
+
+# Scale websocket server
+docker compose up -d --scale websocket-server=2
+```
+
+<Note>
+  Only stateless services without port mappings can be scaled. Services like `backend` and `web` with fixed port mappings cannot be scaled without additional configuration.
+</Note>
+
+## Service Restart Policies
+
+```yaml
+restart: unless-stopped  # Most services
+restart: "no"           # db-migrate only
+```
+
+- **unless-stopped**: Automatically restarts unless manually stopped
+- **no**: Runs once and exits (used for migrations)
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Service won't start">
+    Check service dependencies and health status:
+    
+    ```bash
+    docker compose ps
+    docker compose logs <service-name>
+    ```
+    
+    Common issues:
+    - Dependent service not healthy
+    - Port already in use
+    - Missing environment variables
+  </Accordion>
+  
+  <Accordion title="Database connection errors">
+    Verify database services are healthy:
+    
+    ```bash
+    docker compose ps postgres timescaledb
+    docker compose exec postgres pg_isready -U postgresql
+    ```
+    
+    Check connection strings in environment variables.
+  </Accordion>
+  
+  <Accordion title="Migration failures">
+    View migration logs:
+    
+    ```bash
+    docker compose logs db-migrate
+    ```
+    
+    Manually run migrations:
+    
+    ```bash
+    docker compose run --rm db-migrate
+    ```
+  </Accordion>
+  
+  <Accordion title="Out of memory errors">
+    Increase Docker resource limits or add memory limits to services:
+    
+    ```yaml
+    services:
+      backend:
+        deploy:
+          resources:
+            limits:
+              memory: 2G
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Production Considerations
+
+<Warning>
+  The default docker-compose.yml is configured for development. Production deployments should:
+  
+  - Use strong, unique passwords
+  - Enable TLS/SSL for all connections
+  - Configure proper backup strategies
+  - Set resource limits for all services
+  - Use external secrets management
+  - Enable production logging and monitoring
+</Warning>
+
+### Production Checklist
+
+<Check>Change all default passwords</Check>
+<Check>Configure volume backups</Check>
+<Check>Enable container resource limits</Check>
+<Check>Set up external monitoring</Check>
+<Check>Configure log aggregation</Check>
+<Check>Enable HTTPS for frontend services</Check>
+<Check>Set up automated health checks</Check>
+<Check>Configure database backups</Check>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Environment Variables" icon="gear" href="/deployment/environment-variables">
+    Configure all environment variables for your deployment
+  </Card>
+  <Card title="Database Setup" icon="database" href="/deployment/database-setup">
+    Learn about database schema and migrations
+  </Card>
+</CardGroup>

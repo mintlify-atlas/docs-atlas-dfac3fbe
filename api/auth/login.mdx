@@ -1,0 +1,123 @@
+---
+title: 'Login'
+api: 'POST /api/v1/auth/login'
+description: 'Initiate authentication by email and receive a verification token'
+---
+
+## Overview
+
+The login endpoint initiates the authentication flow for the Exness Trading Platform. When a user provides their email address, the system generates a JWT token containing the user's credentials and sends a verification link via email.
+
+## Authentication Flow
+
+1. User submits email address to `/api/v1/auth/login`
+2. Server generates a unique user ID and creates a JWT token
+3. Verification email is sent with a token link
+4. User clicks the verification link to complete authentication via `/api/v1/auth/verify`
+
+## Request
+
+<ParamField body="email" type="string" required>
+  The user's email address. This will be used to send the verification link and is embedded in the JWT token.
+</ParamField>
+
+### Request Body Example
+
+```json
+{
+  "email": "trader@example.com"
+}
+```
+
+## Response
+
+<ResponseField name="message" type="string">
+  Confirmation message that the verification link was sent
+</ResponseField>
+
+<ResponseField name="email" type="string">
+  Echo of the email address that received the verification link
+</ResponseField>
+
+### Success Response (200 OK)
+
+```json
+{
+  "message": "Verification link send",
+  "email": "trader@example.com"
+}
+```
+
+## Error Responses
+
+<ResponseField name="error" type="string">
+  Error message describing what went wrong
+</ResponseField>
+
+### 400 Bad Request
+
+Returned when the email parameter is missing.
+
+```json
+{
+  "error": "Email is required"
+}
+```
+
+### 500 Internal Server Error
+
+Returned when there's a server configuration issue or processing failure.
+
+```json
+{
+  "error": "Server configuration error"
+}
+```
+
+or
+
+```json
+{
+  "error": "Failed to process login request"
+}
+```
+
+## Implementation Details
+
+- Generates a unique UUID v4 for each user session
+- Creates a JWT token containing `userId` and `email`
+- In production: Sends verification email via nodemailer
+- In development: Logs verification link to console
+- Email sending failures don't block the response (logged for debugging)
+
+## cURL Example
+
+```bash
+curl -X POST https://api.exness.com/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "trader@example.com"
+  }'
+```
+
+## JavaScript Example
+
+```javascript
+const response = await fetch('https://api.exness.com/api/v1/auth/login', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    email: 'trader@example.com'
+  })
+});
+
+const data = await response.json();
+console.log(data);
+// { message: "Verification link send", email: "trader@example.com" }
+```
+
+## Next Steps
+
+After receiving the verification email, users should click the link which directs them to the [verify endpoint](/api/auth/verify) to complete authentication and receive their JWT token for API access.

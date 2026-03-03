@@ -1,0 +1,345 @@
+---
+title: Real-Time Trading
+description: Execute trades with live market data and instant order processing
+---
+
+The Exness Trading Platform provides real-time trading capabilities with live market data streaming and instant order execution. All trades are processed through a distributed architecture using Redis Streams for reliable message delivery.
+
+## How Real-Time Trading Works
+
+When you place a trade, the platform:
+
+1. **Validates your order** - Checks balance, symbol availability, and order parameters
+2. **Fetches live prices** - Retrieves real-time bid/ask prices from the market data feed
+3. **Calculates margin** - Determines required margin based on leverage
+4. **Executes instantly** - Processes the order and updates your positions
+5. **Streams updates** - Sends real-time updates via WebSocket
+
+<Info>
+The platform uses Redis Streams to ensure every trade request is processed reliably, even under high load.
+</Info>
+
+## Placing a Trade
+
+To place a trade, send a POST request to `/api/v1/trade/create` with your order details:
+
+<Tabs>
+  <Tab title="Request">
+    ```bash
+    curl -X POST https://api.exness.com/api/v1/trade/create \
+      -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "symbol": "BTCUSDT",
+        "type": "buy",
+        "quantity": 0.1,
+        "leverage": 10,
+        "slippage": 0.5,
+        "takeProfit": 45000,
+        "stopLoss": 42000
+      }'
+    ```
+  </Tab>
+  <Tab title="Response">
+    ```json
+    {
+      "message": "Order created successfully",
+      "orderId": "550e8400-e29b-41d4-a716-446655440000"
+    }
+    ```
+  </Tab>
+  <Tab title="Error">
+    ```json
+    {
+      "error": "Insufficient balance. Required: $430.00, Available: $100.00"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Order Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `symbol` | string | Yes | Trading pair (e.g., BTCUSDT, ETHUSDT, SOLUSDT) |
+| `type` | string | Yes | Order type: `buy` or `sell` |
+| `quantity` | number | Yes | Amount to trade |
+| `leverage` | number | Yes | Leverage multiplier (1-100x) |
+| `slippage` | number | No | Maximum acceptable price slippage percentage |
+| `takeProfit` | number | No | Automatic profit-taking price |
+| `stopLoss` | number | No | Automatic loss-limiting price |
+
+## Order Execution Flow
+
+Here's what happens when your order is submitted:
+
+<CodeGroup>
+```typescript Backend Route
+// apps/Backend/src/routes/trade.routes.ts
+tradeRouter.post("/create", authMiddleware, async (req: Request, res: Response) => {
+  const { symbol, type, quantity, leverage, slippage, takeProfit, stopLoss } = req.body;
+  
+  // Validate required parameters
+  if (!symbol || !type || !quantity || !leverage) {
+    return res.status(400).json({
+      error: "Missing required parameters: symbol, type, quantity, leverage",
+    });
+  }
+
+  const userId = req.user?.id;
+  
+  // Send order to Engine via Redis Stream
+  const RedisStreams = req.app.locals.redisStreams;
+  const orderPayload = {
+    function: "createOrder",
+    userId,
+    symbol,
+    type,
+    quantity,
+    leverage,
+    slippage,
+    takeProfit,
+    stopLoss
+  };
+  
+  const streamResult = await RedisStreams.addToRedisStream(
+    constant.redisStream, 
+    orderPayload
+  );
+  const requestId = streamResult?.requestId;
+  
+  // Wait for Engine response (3 second timeout)
+  const result = await RedisStreams.readNextFromRedisStream(
+    constant.secondaryRedisStream,
+    3000,
+    { requestId }
+  );
+  
+  res.json({
+    message: "Order created successfully",
+    orderId: result.orderId
+  });
+});
+```
+
+```typescript Engine Processing
+// apps/Engine/src/functions/createOrder.ts
+export async function createOrderFunction(result: any) {
+  // Verify user exists
+  const user = users.find((user) => user.userId === result.userId);
+  if (!user) {
+    return sendError("User not found");
+  }
+
+  // Get current market price
+  const priceData = prices.find(p => p.asset === getPriceAssetName(result.symbol));
+  if (!priceData) {
+    return sendError("Price data not found for symbol");
+  }
+
+  // Calculate execution price based on order type
+  const expectedPrice = result.type === "buy" 
+    ? priceData.askValue 
+    : priceData.bidValue;
+
+  // Calculate required margin
+  const leverage = parseInt(result.leverage) || 1;
+  const marginRequired = (result.quantity * expectedPrice) / leverage;
+  
+  // Verify sufficient balance
+  const dbUser = await prisma.user.findUnique({
+    where: { userID: result.userId }
+  });
+  
+  if (dbUser.balance < marginRequired) {
+    return sendError(
+      `Insufficient balance. Required: $${marginRequired.toFixed(2)}, Available: $${dbUser.balance.toFixed(2)}`
+    );
+  }
+
+  // Check slippage tolerance
+  if (result.slippage) {
+    const currentPrice = result.type === "buy" 
+      ? priceData.askValue 
+      : priceData.bidValue;
+    const priceDifference = Math.abs(currentPrice - expectedPrice);
+    const priceDifferencePercent = (priceDifference / expectedPrice) * 100;
+
+    if (priceDifferencePercent > result.slippage) {
+      return sendError(
+        `Order cancelled due to slippage. Slippage: ${priceDifferencePercent.toFixed(4)}%`
+      );
+    }
+  }
+
+  // Create the order
+  const orderId = uuid();
+  const newOrder = {
+    userId: result.userId,
+    orderId,
+    symbol: result.symbol,
+    type: result.type,
+    quantity: result.quantity,
+    leverage,
+    openPrice: expectedPrice,
+    openTime: new Date(),
+    takeProfit: result.takeProfit,
+    stopLoss: result.stopLoss
+  };
+
+  openOrders.push(newOrder);
+
+  // Deduct margin from balance
+  await prisma.user.update({
+    where: { userID: result.userId },
+    data: { balance: dbUser.balance - marginRequired }
+  });
+
+  // Send success response
+  await RedisStreams.addToRedisStream(constant.secondaryRedisStream, {
+    function: "createOrder",
+    message: JSON.stringify({
+      success: true,
+      orderId,
+      message: "Order created successfully"
+    }),
+    requestId: result.requestId
+  });
+}
+```
+</CodeGroup>
+
+## Slippage Protection
+
+Slippage occurs when the market price moves between when you submit an order and when it executes. The platform protects you by:
+
+- **Checking price movement** - Compares expected price vs. actual execution price
+- **Cancelling risky orders** - Rejects orders if slippage exceeds your tolerance
+- **Refunding margin** - Returns your margin if the order is cancelled
+
+<Tip>
+Set a slippage tolerance between 0.1% and 1% for most market conditions. Use higher values (1-2%) during volatile periods.
+</Tip>
+
+### Slippage Example
+
+```typescript
+// Expected BTC price: $43,000
+// Slippage tolerance: 0.5%
+// Current BTC price: $43,250 (0.58% difference)
+
+const priceDifference = Math.abs(43250 - 43000);
+const priceDifferencePercent = (priceDifference / 43000) * 100; // 0.58%
+
+if (priceDifferencePercent > 0.5) {
+  // Order cancelled - price moved too much
+  throw new Error("Order cancelled due to slippage");
+}
+```
+
+## Margin Calculation
+
+The platform calculates margin using this formula:
+
+```
+Margin Required = (Quantity × Price) ÷ Leverage
+```
+
+### Examples
+
+<Tabs>
+  <Tab title="10x Leverage">
+    ```
+    Trade: 0.1 BTC at $43,000
+    Leverage: 10x
+    
+    Margin = (0.1 × $43,000) ÷ 10
+           = $4,300 ÷ 10
+           = $430
+    ```
+  </Tab>
+  <Tab title="50x Leverage">
+    ```
+    Trade: 1 ETH at $2,500
+    Leverage: 50x
+    
+    Margin = (1 × $2,500) ÷ 50
+           = $2,500 ÷ 50
+           = $50
+    ```
+  </Tab>
+  <Tab title="1x Leverage (No Leverage)">
+    ```
+    Trade: 10 SOL at $100
+    Leverage: 1x
+    
+    Margin = (10 × $100) ÷ 1
+           = $1,000 ÷ 1
+           = $1,000
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+Higher leverage requires less margin but increases risk. Your position can be liquidated faster if the market moves against you.
+</Note>
+
+## Live Price Feed
+
+All prices are streamed from Binance via WebSocket and distributed through Redis Pub/Sub:
+
+```typescript
+// apps/Price_Poller/src/index.ts
+const ws = new WebSocket(config.BINANCE_WS_URL);
+
+ws.on("message", async (data) => {
+  const msg = JSON.parse(data.toString());
+  
+  // Calculate bid/ask spread (0.5%)
+  const price = Number(msg.data.p);
+  const bidValue = price - (price * 0.005);
+  const askValue = price + (price * 0.005);
+  
+  const priceUpdate = {
+    asset: msg.data.s,
+    price,
+    bidValue,
+    askValue
+  };
+  
+  // Publish to WebSocket clients
+  await PubsubClient.publish(
+    constant.pubsubKey, 
+    JSON.stringify(priceUpdate)
+  );
+  
+  // Send to Engine for order processing
+  await RedisStreams.addToRedisStream(
+    constant.redisStream,
+    { function: "pricePoller", message: JSON.stringify([priceUpdate]) }
+  );
+});
+```
+
+## Error Handling
+
+The platform handles various error scenarios:
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| Insufficient balance | Not enough funds for margin | Deposit more funds or reduce position size |
+| Price data not found | Symbol not available | Check supported trading pairs |
+| Invalid order type | Type is not 'buy' or 'sell' | Use correct order type |
+| Order timeout | Request took longer than 3 seconds | Retry the request |
+| Slippage exceeded | Price moved beyond tolerance | Increase slippage tolerance or retry |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Order Management" icon="list" href="/features/order-management">
+    View, monitor, and close your open positions
+  </Card>
+  <Card title="Market Data" icon="chart-line" href="/features/market-data">
+    Access live market data and price history
+  </Card>
+</CardGroup>

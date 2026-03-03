@@ -1,0 +1,508 @@
+---
+title: '@repo/utils'
+description: Utility functions including email service with Nodemailer
+icon: 'wrench'
+---
+
+The `@repo/utils` package provides shared utility functions and services used across the Exness Trading Platform.
+
+## Installation
+
+This package is internal to the monorepo and installed automatically:
+
+```json
+"dependencies": {
+  "@repo/utils": "workspace:*"
+}
+```
+
+## Features
+
+- **Email Service**: Nodemailer integration for transactional emails
+- **Type-Safe**: Full TypeScript support
+- **Configuration**: Uses `@repo/config` for credentials
+- **Extensible**: Easy to add new utility functions
+
+## Email Service
+
+The package includes a Nodemailer-based email service for sending verification emails.
+
+### Importing
+
+```typescript
+import { nodemailerSender } from '@repo/utils';
+```
+
+### Sending Verification Emails
+
+<CodeGroup>
+```typescript Basic Usage
+import { nodemailerSender } from '@repo/utils';
+
+// Send verification email
+await nodemailerSender(
+  'user@example.com',
+  'verification_token_123'
+);
+
+console.log('Verification email sent!');
+```
+
+```typescript User Registration
+import { nodemailerSender } from '@repo/utils';
+import { prisma } from '@repo/db';
+import crypto from 'crypto';
+
+async function registerUser(email: string) {
+  // Generate verification token
+  const token = crypto.randomBytes(32).toString('hex');
+  
+  // Create user in database
+  const user = await prisma.user.create({
+    data: {
+      userID: crypto.randomUUID(),
+      email: email,
+      balance: 0
+    }
+  });
+  
+  // Send verification email
+  await nodemailerSender(email, token);
+  
+  return { user, token };
+}
+```
+
+```typescript API Route (Next.js)
+import { nodemailerSender } from '@repo/utils';
+import { NextRequest, NextResponse } from 'next/server';
+
+export async function POST(request: NextRequest) {
+  const { email } = await request.json();
+  
+  try {
+    const token = generateVerificationToken();
+    
+    // Store token in database
+    await storeVerificationToken(email, token);
+    
+    // Send email
+    await nodemailerSender(email, token);
+    
+    return NextResponse.json({ 
+      success: true,
+      message: 'Verification email sent'
+    });
+  } catch (error) {
+    return NextResponse.json(
+      { error: 'Failed to send email' },
+      { status: 500 }
+    );
+  }
+}
+```
+</CodeGroup>
+
+## Email Configuration
+
+The email service uses configuration from `@repo/config`:
+
+<ParamField path="USER_EMAIL" type="string" required>
+  Gmail account for sending emails
+</ParamField>
+
+<ParamField path="USER_PASSWORD" type="string" required>
+  Gmail app password (not regular password)
+</ParamField>
+
+<ParamField path="BACKEND_URL" type="string" required>
+  Backend URL for verification link construction
+</ParamField>
+
+### Setting Up Gmail
+
+<Steps>
+  <Step title="Enable 2-Factor Authentication">
+    Enable 2FA on your Gmail account at [Google Account Security](https://myaccount.google.com/security)
+  </Step>
+  
+  <Step title="Generate App Password">
+    1. Go to [App Passwords](https://myaccount.google.com/apppasswords)
+    2. Select "Mail" and "Other (Custom name)"
+    3. Name it "Exness Trading Platform"
+    4. Copy the generated 16-character password
+  </Step>
+  
+  <Step title="Add to Environment">
+    Add to your `.env` file:
+    ```bash
+    USER_EMAIL="your-email@gmail.com"
+    USER_PASSWORD="your-16-char-app-password"
+    BACKEND_URL="http://localhost:3000"
+    ```
+  </Step>
+</Steps>
+
+## Email Template
+
+The verification email includes:
+
+- **From**: "Exness Contest" with configured email
+- **Subject**: "Exness Contest Verification Link"
+- **Text**: Plain text version with verification URL
+- **HTML**: Formatted HTML version with clickable link
+
+### Verification URL Format
+
+```
+{BACKEND_URL}/api/v1/auth/verify?token={token}
+```
+
+Example:
+```
+http://localhost:3000/api/v1/auth/verify?token=abc123def456
+```
+
+## Complete Registration Flow
+
+Here's a complete example of user registration with email verification:
+
+```typescript
+import { nodemailerSender } from '@repo/utils';
+import { prisma } from '@repo/db';
+import { config } from '@repo/config';
+import crypto from 'crypto';
+
+interface RegistrationData {
+  email: string;
+}
+
+interface VerificationToken {
+  token: string;
+  email: string;
+  expiresAt: Date;
+}
+
+class AuthService {
+  // Store for verification tokens (use Redis in production)
+  private tokens = new Map<string, VerificationToken>();
+  
+  async registerUser(data: RegistrationData) {
+    // Check if user exists
+    const existing = await prisma.user.findUnique({
+      where: { email: data.email }
+    });
+    
+    if (existing) {
+      throw new Error('User already exists');
+    }
+    
+    // Generate verification token
+    const token = crypto.randomBytes(32).toString('hex');
+    
+    // Store token (expires in 24 hours)
+    this.tokens.set(token, {
+      token,
+      email: data.email,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
+    });
+    
+    // Send verification email
+    await nodemailerSender(data.email, token);
+    
+    return {
+      success: true,
+      message: 'Verification email sent'
+    };
+  }
+  
+  async verifyEmail(token: string) {
+    // Get token from storage
+    const storedToken = this.tokens.get(token);
+    
+    if (!storedToken) {
+      throw new Error('Invalid or expired token');
+    }
+    
+    if (new Date() > storedToken.expiresAt) {
+      this.tokens.delete(token);
+      throw new Error('Token expired');
+    }
+    
+    // Create user account
+    const user = await prisma.user.create({
+      data: {
+        userID: crypto.randomUUID(),
+        email: storedToken.email,
+        balance: 10000.00 // Starting balance
+      }
+    });
+    
+    // Clean up token
+    this.tokens.delete(token);
+    
+    return user;
+  }
+  
+  async resendVerification(email: string) {
+    // Find existing token
+    const existingToken = Array.from(this.tokens.values())
+      .find(t => t.email === email);
+    
+    if (existingToken) {
+      // Delete old token
+      this.tokens.delete(existingToken.token);
+    }
+    
+    // Generate new token
+    const token = crypto.randomBytes(32).toString('hex');
+    this.tokens.set(token, {
+      token,
+      email,
+      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
+    });
+    
+    // Resend email
+    await nodemailerSender(email, token);
+    
+    return {
+      success: true,
+      message: 'Verification email resent'
+    };
+  }
+}
+
+export const authService = new AuthService();
+```
+
+## API Implementation
+
+### Registration Endpoint
+
+```typescript
+// app/api/auth/register/route.ts
+import { nodemailerSender } from '@repo/utils';
+import { NextRequest, NextResponse } from 'next/server';
+import { authService } from '@/lib/auth';
+
+export async function POST(request: NextRequest) {
+  try {
+    const { email } = await request.json();
+    
+    // Validate email
+    if (!email || !email.includes('@')) {
+      return NextResponse.json(
+        { error: 'Invalid email address' },
+        { status: 400 }
+      );
+    }
+    
+    // Register and send verification
+    const result = await authService.registerUser({ email });
+    
+    return NextResponse.json(result);
+  } catch (error) {
+    console.error('Registration error:', error);
+    
+    return NextResponse.json(
+      { error: error.message },
+      { status: 500 }
+    );
+  }
+}
+```
+
+### Verification Endpoint
+
+```typescript
+// app/api/auth/verify/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { authService } from '@/lib/auth';
+
+export async function GET(request: NextRequest) {
+  const token = request.nextUrl.searchParams.get('token');
+  
+  if (!token) {
+    return NextResponse.json(
+      { error: 'Token required' },
+      { status: 400 }
+    );
+  }
+  
+  try {
+    const user = await authService.verifyEmail(token);
+    
+    // Redirect to success page
+    return NextResponse.redirect(
+      new URL('/auth/verified', request.url)
+    );
+  } catch (error) {
+    console.error('Verification error:', error);
+    
+    // Redirect to error page
+    return NextResponse.redirect(
+      new URL('/auth/verification-failed', request.url)
+    );
+  }
+}
+```
+
+## Error Handling
+
+```typescript
+import { nodemailerSender } from '@repo/utils';
+
+async function sendVerificationWithRetry(
+  email: string,
+  token: string,
+  maxRetries = 3
+) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      await nodemailerSender(email, token);
+      console.log('Email sent successfully');
+      return;
+    } catch (error) {
+      console.error(`Attempt ${i + 1} failed:`, error);
+      
+      if (i === maxRetries - 1) {
+        throw new Error('Failed to send email after multiple attempts');
+      }
+      
+      // Wait before retrying (exponential backoff)
+      await new Promise(resolve => 
+        setTimeout(resolve, Math.pow(2, i) * 1000)
+      );
+    }
+  }
+}
+```
+
+## Testing
+
+### Mock for Testing
+
+```typescript
+// __mocks__/@repo/utils.ts
+export const nodemailerSender = jest.fn().mockResolvedValue(undefined);
+
+// In your tests
+import { nodemailerSender } from '@repo/utils';
+
+test('sends verification email', async () => {
+  await registerUser('test@example.com');
+  
+  expect(nodemailerSender).toHaveBeenCalledWith(
+    'test@example.com',
+    expect.any(String)
+  );
+});
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use app-specific passwords">
+    Never use your main Gmail password. Always use app-specific passwords:
+    
+    1. Enable 2FA on your Google account
+    2. Generate an app password
+    3. Use the app password in your environment variables
+  </Accordion>
+  
+  <Accordion title="Store tokens securely">
+    In production, store verification tokens in Redis or a database:
+    
+    ```typescript
+    import { redisClient } from '@repo/config';
+    
+    // Store token with expiration
+    await redis.setEx(
+      `verify:${token}`,
+      24 * 60 * 60, // 24 hours
+      email
+    );
+    ```
+  </Accordion>
+  
+  <Accordion title="Implement rate limiting">
+    Prevent abuse by rate limiting verification emails:
+    
+    ```typescript
+    const lastSent = await getLastEmailTime(email);
+    const cooldown = 60 * 1000; // 1 minute
+    
+    if (Date.now() - lastSent < cooldown) {
+      throw new Error('Please wait before requesting another email');
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="Log email attempts">
+    Track email sending for debugging:
+    
+    ```typescript
+    try {
+      await nodemailerSender(email, token);
+      await logEmailEvent('verification_sent', email);
+    } catch (error) {
+      await logEmailEvent('verification_failed', email, error);
+      throw error;
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Future Extensions
+
+The utils package can be extended with additional utilities:
+
+```typescript
+// Example: Add more utilities
+export * from './nodemailer/index.ts';
+export * from './validation/index.ts';
+export * from './formatters/index.ts';
+export * from './crypto/index.ts';
+```
+
+## API Reference
+
+### nodemailerSender(email: string, token: string)
+
+Sends a verification email to the specified address.
+
+**Parameters:**
+
+<ParamField path="email" type="string" required>
+  Recipient email address
+</ParamField>
+
+<ParamField path="token" type="string" required>
+  Verification token to include in the email link
+</ParamField>
+
+**Returns:** `Promise<void>`
+
+**Throws:** Error if email sending fails
+
+**Example:**
+```typescript
+try {
+  await nodemailerSender('user@example.com', 'token123');
+  console.log('Email sent successfully');
+} catch (error) {
+  console.error('Failed to send email:', error);
+}
+```
+
+## Related Packages
+
+<CardGroup cols={2}>
+  <Card title="@repo/config" icon="gear" href="/packages/config">
+    Provides email service credentials
+  </Card>
+  
+  <Card title="@repo/db" icon="database" href="/packages/database">
+    Used for storing user data after verification
+  </Card>
+</CardGroup>

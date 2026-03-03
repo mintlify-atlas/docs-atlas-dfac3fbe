@@ -1,0 +1,235 @@
+---
+title: 'Get Open Orders'
+api: 'GET /api/v1/trade/orders'
+description: 'Retrieve all open trading orders for the authenticated user'
+---
+
+Retrieves a list of all currently open trading orders for the authenticated user. This endpoint allows you to monitor your active positions in real-time.
+
+## Authentication
+
+This endpoint requires authentication via JWT token in the Authorization header.
+
+```
+Authorization: Bearer <your_jwt_token>
+```
+
+## Query Parameters
+
+This endpoint does not accept any query parameters. It automatically returns all open orders for the authenticated user.
+
+## Response
+
+<ResponseField name="message" type="array">
+  Array of open orders
+  
+  <ResponseField name="message[].orderId" type="string">
+    Unique identifier for the order
+  </ResponseField>
+  
+  <ResponseField name="message[].symbol" type="string">
+    Trading symbol (e.g., "BTCUSD", "ETHUSD")
+  </ResponseField>
+  
+  <ResponseField name="message[].type" type="string">
+    Order type ("BUY" or "SELL")
+  </ResponseField>
+  
+  <ResponseField name="message[].quantity" type="number">
+    Order quantity/volume
+  </ResponseField>
+  
+  <ResponseField name="message[].leverage" type="number">
+    Leverage multiplier used for this order
+  </ResponseField>
+  
+  <ResponseField name="message[].openPrice" type="number">
+    Price at which the order was opened
+  </ResponseField>
+  
+  <ResponseField name="message[].currentPrice" type="number">
+    Current market price for the symbol
+  </ResponseField>
+  
+  <ResponseField name="message[].profit" type="number">
+    Current unrealized profit/loss for the order
+  </ResponseField>
+  
+  <ResponseField name="message[].takeProfit" type="number">
+    Take profit price level (if set)
+  </ResponseField>
+  
+  <ResponseField name="message[].stopLoss" type="number">
+    Stop loss price level (if set)
+  </ResponseField>
+  
+  <ResponseField name="message[].openTime" type="string">
+    Timestamp when the order was opened
+  </ResponseField>
+  
+  <ResponseField name="message[].status" type="string">
+    Order status ("OPEN")
+  </ResponseField>
+</ResponseField>
+
+## Error Responses
+
+<ResponseField name="error" type="string">
+  Error message describing what went wrong
+</ResponseField>
+
+<ResponseField name="message" type="array">
+  Empty array in case of error
+</ResponseField>
+
+### Status Codes
+
+- `200` - Successfully retrieved open orders (may be empty array)
+- `401` - Unauthorized - invalid or expired token
+- `500` - Internal server error
+
+## Examples
+
+### Get All Open Orders
+
+```bash
+curl -X GET https://api.exness.com/api/v1/trade/orders \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+<ResponseExample>
+```json
+{
+  "message": [
+    {
+      "orderId": "ord_1234567890abcdef",
+      "symbol": "BTCUSD",
+      "type": "BUY",
+      "quantity": 0.5,
+      "leverage": 10,
+      "openPrice": 42000.00,
+      "currentPrice": 42350.75,
+      "profit": 175.38,
+      "takeProfit": 45000.00,
+      "stopLoss": 40000.00,
+      "openTime": "2026-03-03T10:30:00.000Z",
+      "status": "OPEN"
+    },
+    {
+      "orderId": "ord_fedcba0987654321",
+      "symbol": "ETHUSD",
+      "type": "SELL",
+      "quantity": 2.0,
+      "leverage": 20,
+      "openPrice": 1900.00,
+      "currentPrice": 1875.50,
+      "profit": 49.00,
+      "takeProfit": 1800.00,
+      "stopLoss": 1950.00,
+      "openTime": "2026-03-03T09:15:00.000Z",
+      "status": "OPEN"
+    }
+  ]
+}
+```
+</ResponseExample>
+
+### No Open Orders
+
+```bash
+curl -X GET https://api.exness.com/api/v1/trade/orders \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+```
+
+<ResponseExample>
+```json
+{
+  "message": []
+}
+```
+</ResponseExample>
+
+### Error: Unauthorized
+
+```bash
+curl -X GET https://api.exness.com/api/v1/trade/orders \
+  -H "Authorization: Bearer invalid_token"
+```
+
+<ResponseExample>
+```json
+{
+  "error": "Unauthorized"
+}
+```
+</ResponseExample>
+
+### Error: Token Expired
+
+<ResponseExample>
+```json Token expired or invalid
+{
+  "error": "Token expired or invalid"
+}
+```
+</ResponseExample>
+
+## Trading Workflow
+
+1. **Create Orders** - Use POST `/api/v1/trade/create` to open new positions
+2. **Monitor Positions** - Use this endpoint to regularly check your open orders
+3. **Track P&L** - Monitor the `profit` field to see unrealized gains/losses
+4. **Close When Ready** - Use POST `/api/v1/trade/close` to close positions
+
+## Use Cases
+
+### Portfolio Monitoring
+
+Regularly poll this endpoint to display a dashboard of active trading positions:
+
+```bash
+# Poll every 5 seconds for real-time updates
+while true; do
+  curl -X GET https://api.exness.com/api/v1/trade/orders \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json"
+  sleep 5
+done
+```
+
+### Risk Management
+
+Check total exposure across all open positions:
+
+```javascript
+const response = await fetch('https://api.exness.com/api/v1/trade/orders', {
+  headers: {
+    'Authorization': `Bearer ${token}`
+  }
+});
+
+const data = await response.json();
+const orders = data.message;
+
+// Calculate total exposure
+const totalExposure = orders.reduce((sum, order) => {
+  return sum + (order.quantity * order.openPrice * order.leverage);
+}, 0);
+
+// Calculate total unrealized P&L
+const totalProfit = orders.reduce((sum, order) => {
+  return sum + order.profit;
+}, 0);
+
+console.log(`Total Exposure: $${totalExposure.toFixed(2)}`);
+console.log(`Total Unrealized P&L: $${totalProfit.toFixed(2)}`);
+```
+
+## Notes
+
+- The endpoint returns only OPEN orders; use GET `/api/v1/trade/close` for closed order history
+- Orders are automatically retrieved for the user identified by the JWT token
+- The `message` field contains a JSON-stringified array that should be parsed by the client
+- Profit/loss values are calculated in real-time based on current market prices
+- The endpoint uses a 5-second timeout for Redis stream operations
+- Orders with take profit or stop loss may automatically close when price targets are reached

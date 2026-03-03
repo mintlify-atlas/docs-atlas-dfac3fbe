@@ -1,0 +1,128 @@
+---
+title: Introduction
+description: Welcome to the Exness Trading Platform - A comprehensive cryptocurrency trading system built with microservices architecture
+---
+
+<img
+  className="block dark:hidden"
+  src="/images/hero-light.svg"
+  alt="Exness Trading Platform"
+/>
+<img
+  className="hidden dark:block"
+  src="/images/hero-dark.svg"
+  alt="Exness Trading Platform"
+/>
+
+## Welcome to Exness Trading Platform
+
+Exness is a high-performance cryptocurrency trading platform built with a distributed microservices architecture. It features real-time market data, order management, and user authentication, designed for speed and scalability.
+
+<CardGroup cols={2}>
+  <Card
+    title="Quick Start"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Get your trading platform running in minutes with Docker Compose
+  </Card>
+  <Card
+    title="Architecture Overview"
+    icon="diagram-project"
+    href="/architecture"
+  >
+    Understand the microservices architecture and data flow
+  </Card>
+  <Card
+    title="API Reference"
+    icon="code"
+    href="/api/auth/login"
+  >
+    Explore the REST API endpoints for trading operations
+  </Card>
+  <Card
+    title="Services Documentation"
+    icon="server"
+    href="/services/backend"
+  >
+    Deep dive into each microservice component
+  </Card>
+</CardGroup>
+
+## Key Features
+
+<CardGroup cols={3}>
+  <Card title="Real-time Trading" icon="chart-line">
+    Live market data and instant order execution with sub-millisecond latency
+  </Card>
+  <Card title="High Performance" icon="gauge-high">
+    In-memory processing engine for ultra-fast trade execution
+  </Card>
+  <Card title="Scalable Architecture" icon="arrows-up-down-left-right">
+    Microservices with Redis streams for horizontal scaling
+  </Card>
+  <Card title="Time-series Data" icon="database">
+    Optimized storage for historical market data with TimeScaleDB
+  </Card>
+  <Card title="User Management" icon="users">
+    Complete authentication and authorization with JWT tokens
+  </Card>
+  <Card title="Market Analysis" icon="magnifying-glass-chart">
+    Advanced charting with multiple timeframes and TradingView integration
+  </Card>
+</CardGroup>
+
+## Technology Stack
+
+The platform is built using modern technologies optimized for high-performance trading:
+
+- **Frontend**: Next.js, React, Tailwind CSS, TradingView Charts
+- **Backend**: Express.js, Node.js, TypeScript, Bun runtime
+- **Database**: PostgreSQL with TimeScaleDB extension for time-series data
+- **Caching**: Redis (Streams, Pub/Sub, Queues)
+- **Real-time**: WebSockets with Redis Pub/Sub
+- **Market Data**: Binance WebSocket API integration
+- **Build Tool**: Turborepo for monorepo management
+- **ORM**: Prisma for type-safe database operations
+
+<Note>
+  The platform uses Bun as its JavaScript runtime for faster execution and lower memory usage compared to Node.js.
+</Note>
+
+## Core Components
+
+The Exness platform consists of seven main microservices:
+
+1. **Backend API** - RESTful API handling authentication, trading, and user management
+2. **Engine** - High-performance in-memory order processing and execution
+3. **WebSocket Server** - Real-time data distribution to frontend clients
+4. **Price Poller** - Fetches live market data from Binance WebSocket API
+5. **Database Storage** - Handles user data and transaction persistence
+6. **Batch Upload** - Processes and stores historical market data in TimeScaleDB
+7. **Web Frontend** - Next.js trading interface with real-time market data
+
+## What You Can Build
+
+With the Exness Trading Platform, you can:
+
+- Execute real-time cryptocurrency trades with multiple pairs (BTC, ETH, SOL)
+- Monitor live market data with bid/ask spreads
+- Manage user portfolios and balances
+- Analyze historical price data with candlestick charts
+- Scale horizontally to handle thousands of concurrent users
+- Integrate with external market data providers
+
+<Warning>
+  This platform is designed for educational and development purposes. Before deploying to production, ensure proper security audits, regulatory compliance, and risk management systems are in place.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Follow the Quickstart" icon="play" href="/quickstart">
+    Set up your development environment and run the platform locally
+  </Card>
+  <Card title="Explore the Architecture" icon="sitemap" href="/architecture">
+    Learn how the microservices communicate and process data
+  </Card>
+</CardGroup>

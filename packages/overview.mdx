@@ -1,0 +1,182 @@
+---
+title: Shared Packages Overview
+description: Overview of all shared packages in the Exness Trading Platform monorepo
+---
+
+The Exness Trading Platform uses a monorepo architecture with shared packages that provide common functionality across all applications. These packages are located in the `packages/` directory and use workspace protocols for internal dependencies.
+
+## Available Packages
+
+<CardGroup cols={2}>
+  <Card title="@repo/config" icon="gear" href="/packages/config">
+    Configuration management with environment variables, Redis clients, and pub/sub utilities
+  </Card>
+  
+  <Card title="@repo/db" icon="database" href="/packages/database">
+    PostgreSQL database client using Prisma ORM with Accelerate extension
+  </Card>
+  
+  <Card title="@repo/timescaledb" icon="chart-line" href="/packages/timescaledb">
+    TimescaleDB client for time-series data with hypertables and continuous aggregates
+  </Card>
+  
+  <Card title="@repo/types" icon="code" href="/packages/types">
+    Shared TypeScript type definitions used across the platform
+  </Card>
+  
+  <Card title="@repo/ui" icon="palette" href="/packages/ui">
+    React component library with 50+ components built on Radix UI and Tailwind CSS
+  </Card>
+  
+  <Card title="@repo/utils" icon="wrench" href="/packages/utils">
+    Utility functions including email service with Nodemailer
+  </Card>
+</CardGroup>
+
+## Package Architecture
+
+All packages follow these conventions:
+
+### Workspace Dependencies
+
+Packages use the `workspace:*` protocol to reference other internal packages:
+
+```json
+"dependencies": {
+  "@repo/config": "workspace:*",
+  "@repo/types": "workspace:*"
+}
+```
+
+### TypeScript Configuration
+
+All packages use TypeScript 5+ and export their main module through the `exports` field:
+
+```json
+"exports": {
+  ".": "./src/index.ts"
+}
+```
+
+### Private Packages
+
+Most packages are marked as private since they're internal to the monorepo:
+
+```json
+"private": true
+```
+
+## Common Use Cases
+
+### Configuration Management
+
+Use `@repo/config` for centralized environment variables and Redis connections:
+
+```typescript
+import { config, redisClient } from '@repo/config';
+
+const redis = redisClient(config.REDIS_URL);
+await redis.connect();
+```
+
+### Database Operations
+
+Use `@repo/db` for PostgreSQL operations with Prisma:
+
+```typescript
+import { prisma } from '@repo/db';
+
+const user = await prisma.user.findUnique({
+  where: { email: 'user@example.com' }
+});
+```
+
+### Time-Series Data
+
+Use `@repo/timescaledb` for storing and querying trading data:
+
+```typescript
+import { timeScaleDB } from '@repo/timescaledb';
+
+const db = timeScaleDB();
+await db.connect();
+await db.setupTimescale();
+```
+
+### UI Components
+
+Use `@repo/ui` for consistent React components:
+
+```typescript
+import { Button, Card } from '@repo/ui/components/button';
+import { useIsMobile } from '@repo/ui/hooks/use-mobile';
+```
+
+## Development
+
+### Running Package Scripts
+
+Most packages include a development script:
+
+```bash
+# Run a specific package in development mode
+bun run --filter @repo/config dev
+```
+
+### Building Packages
+
+Packages are built automatically by the consuming applications. No separate build step is required due to the TypeScript module resolution.
+
+### Adding Dependencies
+
+When adding dependencies to a package, use the appropriate workspace filter:
+
+```bash
+# Add a dependency to a specific package
+bun add <package-name> --filter @repo/config
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use appropriate package for the task">
+    Choose the right package based on your needs:
+    - Configuration and Redis: `@repo/config`
+    - Database queries: `@repo/db`
+    - Time-series data: `@repo/timescaledb`
+    - UI components: `@repo/ui`
+    - Utilities: `@repo/utils`
+  </Accordion>
+  
+  <Accordion title="Keep packages focused">
+    Each package should have a single, well-defined responsibility. Don't add unrelated functionality to existing packages.
+  </Accordion>
+  
+  <Accordion title="Export clean APIs">
+    Only export what's necessary through the main index file. Keep implementation details private.
+  </Accordion>
+  
+  <Accordion title="Document your exports">
+    Add JSDoc comments to exported functions, types, and classes for better developer experience.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Config Package" icon="gear" href="/packages/config">
+    Learn about environment configuration and Redis utilities
+  </Card>
+  
+  <Card title="Database Package" icon="database" href="/packages/database">
+    Explore Prisma integration and database schemas
+  </Card>
+  
+  <Card title="UI Components" icon="palette" href="/packages/ui">
+    Browse the component library and usage examples
+  </Card>
+  
+  <Card title="Utils Package" icon="wrench" href="/packages/utils">
+    Discover utility functions and helpers
+  </Card>
+</CardGroup>

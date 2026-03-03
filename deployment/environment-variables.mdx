@@ -1,0 +1,493 @@
+---
+title: 'Environment Variables'
+description: 'Complete environment variable configuration reference'
+icon: 'gear'
+---
+
+## Overview
+
+The Exness Trading Platform uses environment variables for configuration across all services. This guide documents all available variables from the `.env.example` file.
+
+## Configuration File
+
+Create a `.env` file in the project root:
+
+```bash
+cp .env.example .env
+```
+
+<Warning>
+  Never commit the `.env` file to version control. The `.env.example` file serves as a template with safe default values for development.
+</Warning>
+
+## Complete Environment Variables
+
+### Redis Configuration
+
+<ParamField path="REDIS_URL" type="string" required>
+  Redis connection URL for caching and real-time data streams.
+  
+  **Default**: `redis://localhost:6379`
+  
+  **Docker Network**: `redis://redis:6379`
+  
+  **Format**: `redis://[user:password@]host:port[/database]`
+  
+  Used by:
+  - Backend API
+  - Trading Engine
+  - WebSocket Server
+  - Price Poller
+  - All data processing services
+  
+  <Note>
+    Redis is critical for real-time data flow. All services depend on Redis for inter-service communication.
+  </Note>
+</ParamField>
+
+### Market Data Configuration
+
+<ParamField path="BINANCE_WS_URL" type="string" required>
+  Binance WebSocket API endpoint for real-time market data.
+  
+  **Default**: `wss://ws.backpack.exchange/`
+  
+  **Production**: `wss://stream.binance.com:9443/ws`
+  
+  Used by Price Poller service to fetch live market prices for BTC, ETH, and SOL.
+  
+  <Tip>
+    The default uses Backpack Exchange. Switch to Binance WebSocket API in production for official market data.
+  </Tip>
+</ParamField>
+
+### TimescaleDB Configuration
+
+TimescaleDB stores historical market data and time-series information.
+
+<ParamField path="TIMESCALE_DB_USER" type="string" required>
+  TimescaleDB username.
+  
+  **Default**: `myuser`
+  
+  **Production**: Use a strong, unique username.
+</ParamField>
+
+<ParamField path="TIMESCALE_DB_PASSWORD" type="string" required>
+  TimescaleDB password.
+  
+  **Default**: `mypassword`
+  
+  **Production**: Use a strong, randomly generated password (minimum 32 characters).
+  
+  <Warning>
+    Change this immediately for production deployments. Never use default passwords.
+  </Warning>
+</ParamField>
+
+<ParamField path="TIMESCALE_DB_HOST" type="string" required>
+  TimescaleDB hostname.
+  
+  **Development**: `localhost`
+  
+  **Docker**: `timescaledb` (service name)
+  
+  **Production**: Your TimescaleDB server hostname or IP address.
+</ParamField>
+
+<ParamField path="TIMESCALE_DB_PORT" type="number" required>
+  TimescaleDB port number.
+  
+  **Default**: `5433` (development)
+  
+  **Docker**: `5432` (internal container port)
+  
+  **Standard PostgreSQL**: `5432`
+</ParamField>
+
+<ParamField path="TIMESCALE_DB_NAME" type="string" required>
+  TimescaleDB database name.
+  
+  **Default**: `mydb`
+  
+  **Recommended**: `exness_timeseries` or similar descriptive name.
+</ParamField>
+
+### Authentication Configuration
+
+<ParamField path="JWT_SECRET" type="string" required>
+  Secret key for JWT token signing and verification.
+  
+  **Default**: `mysecret`
+  
+  **Production**: Generate a cryptographically secure random string.
+  
+  ```bash
+  # Generate secure secret
+  openssl rand -base64 64
+  ```
+  
+  <Warning>
+    This is critical for security. All user sessions depend on this secret. Changing it will invalidate all existing sessions.
+  </Warning>
+</ParamField>
+
+### Application Configuration
+
+<ParamField path="NODE_ENV" type="string" required>
+  Node.js environment mode.
+  
+  **Values**: `development` | `production` | `test`
+  
+  **Default**: `production`
+  
+  Affects:
+  - Logging verbosity
+  - Error stack traces
+  - Performance optimizations
+  - Debug features
+</ParamField>
+
+<ParamField path="PORT" type="number" required>
+  Backend API server port.
+  
+  **Default**: `8000`
+  
+  Used by the Express.js backend service for REST API endpoints.
+</ParamField>
+
+<ParamField path="WEBSOCKET_PORT" type="number" required>
+  WebSocket server port for real-time data streaming.
+  
+  **Default**: `7070`
+  
+  Frontend applications connect to this port for live market data and updates.
+</ParamField>
+
+### URL Configuration
+
+<ParamField path="FRONTEND_URL" type="string" required>
+  Frontend application URL for CORS and redirects.
+  
+  **Default**: `http://localhost:3001`
+  
+  **Production**: Your production frontend domain (e.g., `https://trading.exness.com`)
+  
+  Used for:
+  - CORS whitelisting
+  - OAuth redirects
+  - Email links
+</ParamField>
+
+<ParamField path="BACKEND_URL" type="string" required>
+  Backend API URL for service-to-service communication.
+  
+  **Default**: `http://localhost:8000`
+  
+  **Docker**: `http://backend:8000`
+  
+  **Production**: Your production API domain (e.g., `https://api.exness.com`)
+</ParamField>
+
+### Database Configuration
+
+<ParamField path="DATABASE_URL" type="string" required>
+  PostgreSQL connection string for Prisma ORM.
+  
+  **Default**: `postgresql://postgresql:postgresql@localhost:5434/exness`
+  
+  **Docker**: `postgresql://postgresql:postgresql@postgres:5432/exness`
+  
+  **Format**: `postgresql://USER:PASSWORD@HOST:PORT/DATABASE`
+  
+  Used by:
+  - Prisma ORM for migrations
+  - Backend API for user management
+  - Database Storage service
+  - Trading Engine for order persistence
+  
+  <Note>
+    This is the primary database for all transactional data, user accounts, and orders.
+  </Note>
+</ParamField>
+
+<ParamField path="MONGODB_URL" type="string" required>
+  MongoDB connection string for snapshot storage.
+  
+  **Default**: `mongodb://admin:admin123@localhost:27017/exness_snapshots?authSource=admin`
+  
+  **Docker**: `mongodb://admin:admin123@mongodb:27017/exness_snapshots?authSource=admin`
+  
+  **Format**: `mongodb://USER:PASSWORD@HOST:PORT/DATABASE?authSource=admin`
+  
+  Used by Snap Shotting service for periodic account state backups.
+  
+  <Warning>
+    Must be enclosed in quotes in the `.env` file due to special characters.
+  </Warning>
+</ParamField>
+
+### Email Configuration
+
+<ParamField path="USER_EMAIL" type="string" required>
+  Email address for sending notifications and alerts.
+  
+  **Default**: `lakug2004@gmail.com`
+  
+  **Production**: Your organization's SMTP-enabled email address.
+  
+  Used for:
+  - Account verification emails
+  - Trade notifications
+  - Alert system
+  - Password resets
+</ParamField>
+
+<ParamField path="USER_PASSWORD" type="string" required>
+  SMTP app password for email authentication.
+  
+  **Default**: `pvjc ohid eqfl gmpj`
+  
+  **Gmail**: Generate an App Password from Google Account settings.
+  
+  **Format**: Space-separated tokens (Gmail App Password format)
+  
+  <Warning>
+    This is NOT your regular email password. Use an app-specific password or SMTP credential.
+  </Warning>
+</ParamField>
+
+## Environment File Template
+
+Complete `.env.example` file:
+
+```bash .env.example
+# Redis Configuration
+REDIS_URL=redis://localhost:6379
+
+# Market Data
+BINANCE_WS_URL=wss://ws.backpack.exchange/
+
+# TimescaleDB Configuration
+TIMESCALE_DB_USER=myuser
+TIMESCALE_DB_PASSWORD=mypassword
+TIMESCALE_DB_HOST=localhost
+TIMESCALE_DB_PORT=5433
+TIMESCALE_DB_NAME=mydb
+
+# Authentication
+JWT_SECRET=mysecret
+
+# Application Settings
+NODE_ENV=production
+PORT=8000
+FRONTEND_URL=http://localhost:3001
+WEBSOCKET_PORT=7070
+
+# Email Configuration
+USER_EMAIL=lakug2004@gmail.com
+USER_PASSWORD=pvjc ohid eqfl gmpj
+
+# Service URLs
+BACKEND_URL=http://localhost:8000
+
+# Primary Database
+DATABASE_URL=postgresql://postgresql:postgresql@localhost:5434/exness
+
+# MongoDB
+MONGODB_URL='mongodb://admin:admin123@localhost:27017/exness_snapshots?authSource=admin'
+```
+
+## Docker Compose Overrides
+
+Docker Compose automatically overrides certain variables for container networking:
+
+```yaml
+environment:
+  REDIS_URL: redis://redis:6379
+  TIMESCALE_DB_HOST: timescaledb
+  TIMESCALE_DB_PORT: 5432
+  DATABASE_URL: postgresql://postgresql:postgresql@postgres:5432/exness
+  MONGODB_URL: mongodb://admin:admin123@mongodb:27017/exness_snapshots?authSource=admin
+  FRONTEND_URL: http://localhost:3001
+  BACKEND_URL: http://localhost:8000
+```
+
+<Note>
+  Container-specific variables use internal service names (e.g., `postgres`, `redis`) for communication within the Docker network.
+</Note>
+
+## Production Configuration
+
+### Security Best Practices
+
+<Steps>
+  <Step title="Change All Default Passwords">
+    Generate strong passwords for:
+    - TimescaleDB
+    - PostgreSQL (in docker-compose.yml)
+    - MongoDB (in docker-compose.yml)
+    - JWT secret
+    
+    ```bash
+    # Generate random passwords
+    openssl rand -base64 32
+    ```
+  </Step>
+  
+  <Step title="Use Secrets Management">
+    For production, use a secrets management system:
+    - AWS Secrets Manager
+    - HashiCorp Vault
+    - Kubernetes Secrets
+    - Docker Secrets
+    
+    Never store production credentials in plain text `.env` files.
+  </Step>
+  
+  <Step title="Enable TLS/SSL">
+    Update connection strings to use encrypted connections:
+    
+    ```bash
+    DATABASE_URL=postgresql://user:pass@host:5432/db?sslmode=require
+    REDIS_URL=rediss://user:pass@host:6380
+    MONGODB_URL=mongodb://user:pass@host:27017/db?ssl=true
+    ```
+  </Step>
+  
+  <Step title="Set Production URLs">
+    Update all URLs to production domains:
+    
+    ```bash
+    FRONTEND_URL=https://trading.exness.com
+    BACKEND_URL=https://api.exness.com
+    NODE_ENV=production
+    ```
+  </Step>
+</Steps>
+
+### Environment-Specific Variables
+
+<CodeGroup>
+```bash Development
+NODE_ENV=development
+FRONTEND_URL=http://localhost:3001
+BACKEND_URL=http://localhost:8000
+REDIS_URL=redis://localhost:6379
+DATABASE_URL=postgresql://postgresql:postgresql@localhost:5434/exness
+```
+
+```bash Staging
+NODE_ENV=production
+FRONTEND_URL=https://staging.exness.com
+BACKEND_URL=https://api-staging.exness.com
+REDIS_URL=rediss://redis-staging.exness.com:6380
+DATABASE_URL=postgresql://user:pass@db-staging.exness.com:5432/exness?sslmode=require
+```
+
+```bash Production
+NODE_ENV=production
+FRONTEND_URL=https://trading.exness.com
+BACKEND_URL=https://api.exness.com
+REDIS_URL=rediss://redis.exness.com:6380
+DATABASE_URL=postgresql://user:pass@db.exness.com:5432/exness?sslmode=require
+```
+</CodeGroup>
+
+## Variable Validation
+
+The platform validates required environment variables on startup. Missing or invalid variables will prevent services from starting.
+
+<CodeGroup>
+```typescript Backend Validation
+import { z } from 'zod';
+
+const envSchema = z.object({
+  DATABASE_URL: z.string().url(),
+  REDIS_URL: z.string().url(),
+  JWT_SECRET: z.string().min(32),
+  NODE_ENV: z.enum(['development', 'production', 'test']),
+  PORT: z.string().transform(Number),
+  FRONTEND_URL: z.string().url(),
+});
+
+const env = envSchema.parse(process.env);
+```
+
+```typescript TimescaleDB Validation
+const timescaleConfig = {
+  user: process.env.TIMESCALE_DB_USER,
+  password: process.env.TIMESCALE_DB_PASSWORD,
+  host: process.env.TIMESCALE_DB_HOST,
+  port: parseInt(process.env.TIMESCALE_DB_PORT || '5432'),
+  database: process.env.TIMESCALE_DB_NAME,
+};
+```
+</CodeGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Service can't connect to database">
+    Check that database environment variables match between `.env` and `docker-compose.yml`:
+    
+    ```bash
+    # Verify PostgreSQL connection
+    docker compose exec postgres psql -U postgresql -d exness -c "SELECT 1;"
+    
+    # Check environment in container
+    docker compose exec backend env | grep DATABASE_URL
+    ```
+  </Accordion>
+  
+  <Accordion title="CORS errors in frontend">
+    Ensure `FRONTEND_URL` and `BACKEND_URL` are correctly configured:
+    
+    ```bash
+    # Frontend should match the URL you're accessing
+    FRONTEND_URL=http://localhost:3001
+    
+    # Backend should be accessible from frontend
+    BACKEND_URL=http://localhost:8000
+    ```
+  </Accordion>
+  
+  <Accordion title="JWT authentication failing">
+    Verify `JWT_SECRET` is consistent across all services:
+    
+    ```bash
+    # Check if JWT_SECRET is loaded
+    docker compose exec backend node -e "console.log(process.env.JWT_SECRET)"
+    ```
+    
+    Changing `JWT_SECRET` invalidates all existing sessions.
+  </Accordion>
+  
+  <Accordion title="Email notifications not sending">
+    Verify email configuration:
+    
+    ```bash
+    # Check email credentials are loaded
+    docker compose exec backend env | grep USER_EMAIL
+    
+    # Test SMTP connection
+    # Gmail requires App Password, not regular password
+    ```
+    
+    For Gmail:
+    1. Enable 2-factor authentication
+    2. Generate App Password at https://myaccount.google.com/apppasswords
+    3. Use the generated password in `USER_PASSWORD`
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Docker Compose" icon="docker" href="/deployment/docker-compose">
+    Learn how environment variables are used in Docker Compose
+  </Card>
+  <Card title="Database Setup" icon="database" href="/deployment/database-setup">
+    Configure database connections and run migrations
+  </Card>
+</CardGroup>

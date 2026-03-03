@@ -1,0 +1,198 @@
+---
+title: 'Deployment Overview'
+description: 'Get started with deploying the Exness Trading Platform'
+icon: 'rocket'
+---
+
+## Introduction
+
+The Exness Trading Platform uses a distributed microservices architecture with Docker Compose for orchestration. This guide will help you deploy the complete platform with all required services.
+
+## System Architecture
+
+The platform consists of multiple interconnected services:
+
+<CardGroup cols={2}>
+  <Card title="Frontend Services" icon="browser">
+    - Web application (Next.js)
+    - Documentation site
+  </Card>
+  <Card title="Backend Services" icon="server">
+    - Backend API
+    - Trading Engine
+    - WebSocket Server
+    - Database Storage
+  </Card>
+  <Card title="Data Services" icon="chart-line">
+    - Price Poller
+    - Batch Upload
+    - Snap Shotting
+  </Card>
+  <Card title="Infrastructure" icon="database">
+    - PostgreSQL
+    - TimescaleDB
+    - Redis
+    - MongoDB
+  </Card>
+</CardGroup>
+
+## Prerequisites
+
+Before deploying the Exness Trading Platform, ensure you have the following installed:
+
+<Steps>
+  <Step title="Install Docker">
+    Docker Engine version 20.10 or higher is required.
+    
+    ```bash
+    docker --version
+    ```
+    
+    Download from [docker.com](https://www.docker.com/get-started)
+  </Step>
+  
+  <Step title="Install Docker Compose">
+    Docker Compose V2 is required for the platform.
+    
+    ```bash
+    docker compose version
+    ```
+    
+    Typically included with Docker Desktop, or install separately for Linux.
+  </Step>
+  
+  <Step title="System Requirements">
+    Minimum recommended specifications:
+    
+    - **CPU**: 4 cores
+    - **RAM**: 8GB minimum (16GB recommended)
+    - **Disk**: 50GB available space
+    - **Network**: Stable internet connection for market data
+  </Step>
+  
+  <Step title="Install Bun Runtime">
+    Bun 1.2.18 or higher is used as the JavaScript runtime.
+    
+    ```bash
+    curl -fsSL https://bun.sh/install | bash
+    bun --version
+    ```
+  </Step>
+</Steps>
+
+## Quick Start
+
+<Steps>
+  <Step title="Clone the Repository">
+    ```bash
+    git clone <repository-url>
+    cd exness-trading-platform
+    ```
+  </Step>
+  
+  <Step title="Configure Environment">
+    Copy the example environment file and configure it:
+    
+    ```bash
+    cp .env.example .env
+    ```
+    
+    See the [Environment Variables](/deployment/environment-variables) guide for detailed configuration.
+  </Step>
+  
+  <Step title="Start the Platform">
+    Launch all services with Docker Compose:
+    
+    ```bash
+    docker compose up -d
+    ```
+    
+    This will:
+    - Pull all required Docker images
+    - Create volumes for data persistence
+    - Start all services in the correct order
+    - Run database migrations automatically
+  </Step>
+  
+  <Step title="Verify Deployment">
+    Check that all services are running:
+    
+    ```bash
+    docker compose ps
+    ```
+    
+    All services should show a "running" or "healthy" status.
+  </Step>
+</Steps>
+
+## Service Endpoints
+
+Once deployed, the following services are available:
+
+<ParamField path="Web Application" type="http://localhost:3001">
+  Main trading platform frontend with real-time market data and order management.
+</ParamField>
+
+<ParamField path="Documentation" type="http://localhost:3000">
+  Platform documentation and API reference.
+</ParamField>
+
+<ParamField path="Backend API" type="http://localhost:8000">
+  REST API for trading operations, authentication, and user management.
+</ParamField>
+
+<ParamField path="WebSocket Server" type="ws://localhost:7070">
+  Real-time data streaming for live market prices and updates.
+</ParamField>
+
+<ParamField path="Prisma Studio" type="http://localhost:5555">
+  Database management interface for viewing and editing data.
+</ParamField>
+
+## Deployment Checklist
+
+<Check>Docker and Docker Compose installed</Check>
+<Check>Environment variables configured</Check>
+<Check>Sufficient system resources available</Check>
+<Check>Port availability verified (3000, 3001, 5432, 5433, 6379, 7070, 8000, 27017)</Check>
+<Check>Network connectivity for Binance WebSocket API</Check>
+
+## Health Checks
+
+The platform includes built-in health checks for all infrastructure services:
+
+- **PostgreSQL**: Checks database connectivity every 10 seconds
+- **TimescaleDB**: Validates TimescaleDB extension availability
+- **Redis**: Pings Redis server to ensure cache availability
+- **MongoDB**: Validates MongoDB connection for snapshot storage
+
+<Note>
+  Services automatically wait for their dependencies to be healthy before starting. The `db-migrate` service ensures database migrations complete before application services start.
+</Note>
+
+## Data Persistence
+
+All data is persisted in Docker volumes:
+
+- `postgres_data`: User accounts, orders, and transactional data
+- `timescaledb_data`: Historical market data and candles
+- `redis_data`: Cache and real-time data streams
+- `mongodb_data`: Account snapshots and backups
+
+<Warning>
+  Never delete these volumes in production as they contain all platform data. Always backup volumes before performing maintenance operations.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Docker Compose" icon="docker" href="/deployment/docker-compose">
+    Learn about service configuration and orchestration
+  </Card>
+  <Card title="Environment Variables" icon="gear" href="/deployment/environment-variables">
+    Configure all environment variables
+  </Card>
+  <Card title="Database Setup" icon="database" href="/deployment/database-setup">
+    Understand database migrations and schema
+  </Card>
+</CardGroup>

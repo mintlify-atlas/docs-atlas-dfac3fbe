@@ -1,0 +1,687 @@
+---
+title: 'Database Setup'
+description: 'Database configuration, migrations, and schema management'
+icon: 'database'
+---
+
+## Overview
+
+The Exness Trading Platform uses three database systems, each optimized for specific use cases:
+
+<CardGroup cols={3}>
+  <Card title="PostgreSQL" icon="elephant">
+    Primary database for user accounts, orders, and transactional data
+  </Card>
+  <Card title="TimescaleDB" icon="clock">
+    Time-series database for historical market data and candles
+  </Card>
+  <Card title="MongoDB" icon="leaf">
+    Document store for account snapshots and backups
+  </Card>
+</CardGroup>
+
+## PostgreSQL Configuration
+
+### Database Information
+
+<ParamField path="Image" type="postgres:16-alpine">
+  Official PostgreSQL 16 Alpine Linux image for minimal footprint.
+</ParamField>
+
+<ParamField path="Container Name" type="exness-postgres">
+  Docker container identifier.
+</ParamField>
+
+<ParamField path="Port" type="5434:5432">
+  Maps host port 5434 to container port 5432 to avoid conflicts with local PostgreSQL.
+</ParamField>
+
+<ParamField path="Database" type="exness">
+  Primary database name.
+</ParamField>
+
+<ParamField path="Credentials" type="postgresql / postgresql">
+  Default username and password for development.
+  
+  <Warning>
+    Change these credentials in production. Never use default credentials.
+  </Warning>
+</ParamField>
+
+### Connection String
+
+<CodeGroup>
+```bash Development (Local)
+DATABASE_URL=postgresql://postgresql:postgresql@localhost:5434/exness
+```
+
+```bash Docker Compose
+DATABASE_URL=postgresql://postgresql:postgresql@postgres:5432/exness
+```
+
+```bash Production
+DATABASE_URL=postgresql://username:password@production-host:5432/exness?sslmode=require
+```
+</CodeGroup>
+
+### Health Check
+
+PostgreSQL includes a health check to ensure the database is ready:
+
+```yaml
+healthcheck:
+  test: ["CMD-SHELL", "pg_isready -U postgresql -d exness"]
+  interval: 10s
+  timeout: 5s
+  retries: 5
+```
+
+Services wait for this health check to pass before starting.
+
+## Prisma Schema
+
+The platform uses Prisma ORM for type-safe database operations. The schema is defined in `packages/db/prisma/schema.prisma`.
+
+### Schema Overview
+
+```prisma
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+```
+
+### User Model
+
+Stores user account information:
+
+```prisma
+model User {
+  id      Int     @id @default(autoincrement())
+  userID  String  @unique
+  email   String  @unique
+  balance Float   @default(0)
+  Orders  Orders[]
+}
+```
+
+<ParamField path="id" type="Int">
+  Auto-incrementing primary key.
+</ParamField>
+
+<ParamField path="userID" type="String">
+  Unique user identifier for application logic.
+</ParamField>
+
+<ParamField path="email" type="String">
+  Unique email address for authentication.
+</ParamField>
+
+<ParamField path="balance" type="Float">
+  User's account balance in USD. Defaults to 0.
+</ParamField>
+
+<ParamField path="Orders" type="Orders[]">
+  One-to-many relationship with Orders model.
+</ParamField>
+
+### Orders Model
+
+Stores trading order information:
+
+```prisma
+model Orders {
+  orderId     String    @id
+  userId      String
+  user        User      @relation(fields: [userId], references: [userID], onDelete: Cascade)
+  symbol      Symbol
+  type        OrderSide
+  quantity    Float
+  leverage    Int
+  takeProfit  Float?
+  stopLoss    Float?
+  stippage    Float?
+  openPrice   Float
+  closePrice  Float
+  openTime    DateTime
+  closeTime   DateTime
+  profitLoss  Float
+
+  @@index([userId])
+}
+```
+
+<ParamField path="orderId" type="String">
+  Unique order identifier (primary key).
+</ParamField>
+
+<ParamField path="userId" type="String">
+  Foreign key referencing User.userID with cascade delete.
+</ParamField>
+
+<ParamField path="symbol" type="Symbol enum">
+  Trading pair: `btc`, `sol`, or `eth`.
+</ParamField>
+
+<ParamField path="type" type="OrderSide enum">
+  Order direction: `buy` or `sell`.
+</ParamField>
+
+<ParamField path="quantity" type="Float">
+  Order quantity in base currency.
+</ParamField>
+
+<ParamField path="leverage" type="Int">
+  Leverage multiplier (1x, 2x, 5x, etc.).
+</ParamField>
+
+<ParamField path="takeProfit" type="Float?">
+  Optional take profit price level.
+</ParamField>
+
+<ParamField path="stopLoss" type="Float?">
+  Optional stop loss price level.
+</ParamField>
+
+<ParamField path="openPrice" type="Float">
+  Price at which the order was opened.
+</ParamField>
+
+<ParamField path="closePrice" type="Float">
+  Price at which the order was closed.
+</ParamField>
+
+<ParamField path="profitLoss" type="Float">
+  Realized profit or loss in USD.
+</ParamField>
+
+### Enums
+
+```prisma
+enum Symbol {
+  btc
+  sol
+  eth
+}
+
+enum OrderSide {
+  buy
+  sell
+}
+```
+
+## Database Migrations
+
+The platform uses Prisma Migrate for database schema management.
+
+### Migration Process
+
+<Steps>
+  <Step title="Migration Service">
+    The `db-migrate` service runs automatically on startup:
+    
+    ```yaml
+    db-migrate:
+      command: >
+        sh -c "
+          echo 'Waiting for PostgreSQL...' &&
+          until bun run --silent -e 'import pkg from \"pg\"; const {Client} = pkg; const client = new Client({connectionString: process.env.DATABASE_URL}); await client.connect(); await client.end();' 2>/dev/null; do
+            sleep 2;
+          done &&
+          echo 'PostgreSQL is ready!' &&
+          cd /app/packages/db &&
+          echo 'Running Prisma migrations...' &&
+          bun run db:deploy &&
+          echo 'Migrations completed!'
+        "
+    ```
+  </Step>
+  
+  <Step title="Wait for Database">
+    The migration service waits for PostgreSQL to be healthy before proceeding.
+  </Step>
+  
+  <Step title="Run Migrations">
+    Executes `bun run db:deploy` which runs `prisma migrate deploy`.
+    
+    This applies all pending migrations to the database.
+  </Step>
+  
+  <Step title="Signal Completion">
+    The service exits successfully, triggering dependent services to start.
+  </Step>
+</Steps>
+
+### Migration History
+
+The platform includes the following migrations:
+
+<CodeGroup>
+```sql 20250929102453 - Initial User Model
+-- CreateTable
+CREATE TABLE "User" (
+    "id" SERIAL PRIMARY KEY,
+    "userID" TEXT NOT NULL UNIQUE,
+    "email" TEXT NOT NULL UNIQUE
+);
+```
+
+```sql 20250929103906 - Update User Model
+-- AlterTable
+ALTER TABLE "User" 
+  ADD COLUMN "createdAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  ADD COLUMN "updatedAt" TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+```
+
+```sql 20250929104346 - Unique User ID
+-- CreateIndex
+CREATE UNIQUE INDEX "User_userID_key" ON "User"("userID");
+```
+
+```sql 20251003093154 - Add Orders Model
+-- CreateEnum
+CREATE TYPE "Symbol" AS ENUM ('btc', 'sol', 'eth');
+CREATE TYPE "OrderSide" AS ENUM ('buy', 'sell');
+
+-- CreateTable
+CREATE TABLE "Orders" (
+    "orderId" TEXT PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "symbol" "Symbol" NOT NULL,
+    "type" "OrderSide" NOT NULL,
+    "quantity" DOUBLE PRECISION NOT NULL,
+    "leverage" INTEGER NOT NULL,
+    "takeProfit" DOUBLE PRECISION,
+    "stopLoss" DOUBLE PRECISION,
+    "stippage" DOUBLE PRECISION,
+    "openPrice" DOUBLE PRECISION NOT NULL,
+    "closePrice" DOUBLE PRECISION NOT NULL,
+    "openTime" TIMESTAMP NOT NULL,
+    "closeTime" TIMESTAMP NOT NULL,
+    "profitLoss" DOUBLE PRECISION NOT NULL,
+    CONSTRAINT "Orders_userId_fkey" FOREIGN KEY ("userId") 
+      REFERENCES "User"("userID") ON DELETE CASCADE
+);
+
+-- CreateIndex
+CREATE INDEX "Orders_userId_idx" ON "Orders"("userId");
+```
+
+```sql 20251101140859 - Add Balance Column
+-- AlterTable
+ALTER TABLE "User" 
+  ADD COLUMN "balance" DOUBLE PRECISION NOT NULL DEFAULT 0;
+```
+</CodeGroup>
+
+### Manual Migration Commands
+
+<CodeGroup>
+```bash Create New Migration
+# In development
+cd packages/db
+bun run db:migrate
+
+# This runs: prisma migrate dev --skip-generate
+```
+
+```bash Apply Migrations
+# In production
+cd packages/db
+bun run db:deploy
+
+# This runs: prisma migrate deploy
+```
+
+```bash Generate Prisma Client
+# After schema changes
+cd packages/db
+bun run db:generate
+
+# This runs: prisma generate
+```
+
+```bash Reset Database (Development Only)
+# WARNING: Destroys all data
+cd packages/db
+npx prisma migrate reset
+```
+</CodeGroup>
+
+<Warning>
+  Never run `prisma migrate reset` in production. This will delete all data in the database.
+</Warning>
+
+## TimescaleDB Configuration
+
+### Database Information
+
+<ParamField path="Image" type="timescale/timescaledb:latest-pg16">
+  TimescaleDB with PostgreSQL 16 for time-series data.
+</ParamField>
+
+<ParamField path="Container Name" type="exness-timescaledb">
+  Docker container identifier.
+</ParamField>
+
+<ParamField path="Port" type="5433:5432">
+  Maps host port 5433 to container port 5432.
+</ParamField>
+
+<ParamField path="Database" type="mydb">
+  TimescaleDB database name.
+</ParamField>
+
+<ParamField path="Credentials" type="myuser / mypassword">
+  Default username and password for development.
+</ParamField>
+
+### Connection Configuration
+
+<CodeGroup>
+```bash Environment Variables
+TIMESCALE_DB_USER=myuser
+TIMESCALE_DB_PASSWORD=mypassword
+TIMESCALE_DB_HOST=timescaledb  # Docker service name
+TIMESCALE_DB_PORT=5432         # Internal port
+TIMESCALE_DB_NAME=mydb
+```
+
+```typescript Connection Pool
+import { Pool } from 'pg';
+
+const pool = new Pool({
+  user: process.env.TIMESCALE_DB_USER,
+  password: process.env.TIMESCALE_DB_PASSWORD,
+  host: process.env.TIMESCALE_DB_HOST,
+  port: parseInt(process.env.TIMESCALE_DB_PORT || '5432'),
+  database: process.env.TIMESCALE_DB_NAME,
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
+});
+```
+</CodeGroup>
+
+### TimescaleDB Features
+
+<AccordionGroup>
+  <Accordion title="Hypertables">
+    TimescaleDB uses hypertables for efficient time-series storage:
+    
+    ```sql
+    -- Create candle data table
+    CREATE TABLE candles (
+      time TIMESTAMPTZ NOT NULL,
+      symbol TEXT NOT NULL,
+      open DOUBLE PRECISION NOT NULL,
+      high DOUBLE PRECISION NOT NULL,
+      low DOUBLE PRECISION NOT NULL,
+      close DOUBLE PRECISION NOT NULL,
+      volume DOUBLE PRECISION NOT NULL
+    );
+    
+    -- Convert to hypertable
+    SELECT create_hypertable('candles', 'time');
+    ```
+  </Accordion>
+  
+  <Accordion title="Continuous Aggregates">
+    Pre-computed aggregations for fast chart loading:
+    
+    ```sql
+    -- 1-minute candles
+    CREATE MATERIALIZED VIEW candles_1m
+    WITH (timescaledb.continuous) AS
+    SELECT
+      time_bucket('1 minute', time) AS bucket,
+      symbol,
+      first(open, time) AS open,
+      max(high) AS high,
+      min(low) AS low,
+      last(close, time) AS close,
+      sum(volume) AS volume
+    FROM candles
+    GROUP BY bucket, symbol;
+    
+    -- 5-minute candles
+    CREATE MATERIALIZED VIEW candles_5m
+    WITH (timescaledb.continuous) AS
+    SELECT
+      time_bucket('5 minutes', time) AS bucket,
+      symbol,
+      first(open, time) AS open,
+      max(high) AS high,
+      min(low) AS low,
+      last(close, time) AS close,
+      sum(volume) AS volume
+    FROM candles
+    GROUP BY bucket, symbol;
+    ```
+  </Accordion>
+  
+  <Accordion title="Data Retention">
+    Automatic data cleanup for old records:
+    
+    ```sql
+    -- Drop data older than 90 days
+    SELECT add_retention_policy('candles', INTERVAL '90 days');
+    ```
+  </Accordion>
+  
+  <Accordion title="Compression">
+    Compress old data to save space:
+    
+    ```sql
+    -- Enable compression
+    ALTER TABLE candles SET (
+      timescaledb.compress,
+      timescaledb.compress_segmentby = 'symbol'
+    );
+    
+    -- Compress data older than 7 days
+    SELECT add_compression_policy('candles', INTERVAL '7 days');
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## MongoDB Configuration
+
+### Database Information
+
+<ParamField path="Image" type="mongo:7.0">
+  Official MongoDB 7.0 image.
+</ParamField>
+
+<ParamField path="Container Name" type="exness-mongodb">
+  Docker container identifier.
+</ParamField>
+
+<ParamField path="Port" type="27017:27017">
+  Standard MongoDB port.
+</ParamField>
+
+<ParamField path="Database" type="exness_snapshots">
+  Database for account snapshots.
+</ParamField>
+
+<ParamField path="Credentials" type="admin / admin123">
+  Root credentials for MongoDB.
+</ParamField>
+
+### Connection String
+
+<CodeGroup>
+```bash Development (Local)
+MONGODB_URL='mongodb://admin:admin123@localhost:27017/exness_snapshots?authSource=admin'
+```
+
+```bash Docker Compose
+MONGODB_URL='mongodb://admin:admin123@mongodb:27017/exness_snapshots?authSource=admin'
+```
+</CodeGroup>
+
+<Note>
+  The connection string must be enclosed in quotes due to special characters. The `authSource=admin` parameter is required for authentication.
+</Note>
+
+## Prisma Studio
+
+A visual database management tool is available at http://localhost:5555
+
+### Accessing Prisma Studio
+
+<Steps>
+  <Step title="Ensure Services are Running">
+    ```bash
+    docker compose ps
+    ```
+    
+    Verify `exness-prisma-studio` is running.
+  </Step>
+  
+  <Step title="Open Browser">
+    Navigate to http://localhost:5555
+  </Step>
+  
+  <Step title="Explore Data">
+    - View all User records
+    - Browse Orders with filters
+    - Edit data directly (development only)
+    - Execute custom queries
+  </Step>
+</Steps>
+
+<Warning>
+  Prisma Studio should only be used in development. Never expose it in production environments.
+</Warning>
+
+## Backup and Restore
+
+### PostgreSQL Backup
+
+<CodeGroup>
+```bash Backup Database
+# Backup to file
+docker compose exec postgres pg_dump -U postgresql exness > backup.sql
+
+# Backup with compression
+docker compose exec postgres pg_dump -U postgresql exness | gzip > backup.sql.gz
+```
+
+```bash Restore Database
+# Restore from file
+docker compose exec -T postgres psql -U postgresql exness < backup.sql
+
+# Restore from compressed
+gunzip < backup.sql.gz | docker compose exec -T postgres psql -U postgresql exness
+```
+</CodeGroup>
+
+### TimescaleDB Backup
+
+```bash
+# Backup TimescaleDB
+docker compose exec timescaledb pg_dump -U myuser mydb > timescale_backup.sql
+
+# Restore TimescaleDB
+docker compose exec -T timescaledb psql -U myuser mydb < timescale_backup.sql
+```
+
+### MongoDB Backup
+
+```bash
+# Backup MongoDB
+docker compose exec mongodb mongodump \
+  --username admin \
+  --password admin123 \
+  --authenticationDatabase admin \
+  --db exness_snapshots \
+  --out /data/backup
+
+# Restore MongoDB
+docker compose exec mongodb mongorestore \
+  --username admin \
+  --password admin123 \
+  --authenticationDatabase admin \
+  --db exness_snapshots \
+  /data/backup/exness_snapshots
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Migration service fails">
+    Check migration logs:
+    
+    ```bash
+    docker compose logs db-migrate
+    ```
+    
+    Common issues:
+    - PostgreSQL not ready (increase retries)
+    - Connection string incorrect
+    - Missing migration files
+    
+    Manually run migrations:
+    
+    ```bash
+    docker compose run --rm db-migrate
+    ```
+  </Accordion>
+  
+  <Accordion title="Can't connect to PostgreSQL">
+    Verify database is healthy:
+    
+    ```bash
+    docker compose ps postgres
+    docker compose logs postgres
+    
+    # Test connection
+    docker compose exec postgres psql -U postgresql -d exness -c "SELECT 1;"
+    ```
+    
+    Check port conflicts:
+    
+    ```bash
+    # Port 5434 should be available
+    lsof -i :5434
+    ```
+  </Accordion>
+  
+  <Accordion title="TimescaleDB not accessible">
+    Verify TimescaleDB extension:
+    
+    ```bash
+    docker compose exec timescaledb psql -U myuser -d mydb -c "SELECT * FROM pg_extension WHERE extname = 'timescaledb';"
+    ```
+    
+    Check connection:
+    
+    ```bash
+    docker compose exec timescaledb pg_isready -U myuser -d mydb
+    ```
+  </Accordion>
+  
+  <Accordion title="Prisma Studio won't start">
+    Ensure migrations completed:
+    
+    ```bash
+    docker compose logs db-migrate
+    docker compose logs prisma-studio
+    ```
+    
+    Prisma Studio depends on successful migrations.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<Card title="Environment Variables" icon="gear" href="/deployment/environment-variables">
+  Configure database connection strings
+</Card>

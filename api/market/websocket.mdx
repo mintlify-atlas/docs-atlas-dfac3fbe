@@ -1,0 +1,346 @@
+---
+title: "WebSocket Market Data"
+description: "Real-time market data streaming via WebSocket connection"
+---
+
+## Overview
+
+The Exness Trading Platform provides real-time market data through a WebSocket connection. The server broadcasts live bid/ask prices for all supported trading instruments as they update, enabling you to build responsive trading interfaces with live price feeds.
+
+## Connection
+
+### WebSocket URL
+
+```
+ws://localhost:7070/
+```
+
+<Note>
+  In production, replace `localhost:7070` with your production WebSocket server URL. The WebSocket server runs separately from the REST API.
+</Note>
+
+### Establishing a Connection
+
+The WebSocket server accepts connections without authentication. Once connected, you'll automatically receive real-time market data updates.
+
+## Message Format
+
+### Price Update Messages
+
+The server sends JSON messages containing bid/ask prices for trading instruments:
+
+```json
+{
+  "asset": "BTCUSDT",
+  "bid": "9650050000000",
+  "ask": "9650150000000"
+}
+```
+
+<ResponseField name="asset" type="string">
+  The trading symbol (e.g., `BTCUSDT`, `ETHUSDT`, `SOLUSDT`)
+</ResponseField>
+
+<ResponseField name="bid" type="string">
+  The current bid price in micro-units (divide by 100,000,000 to get the actual price)
+</ResponseField>
+
+<ResponseField name="ask" type="string">
+  The current ask price in micro-units (divide by 100,000,000 to get the actual price)
+</ResponseField>
+
+<Warning>
+  **Price Conversion Required**: All prices are transmitted in micro-units (multiplied by 100,000,000) to avoid floating-point precision issues. You must divide by `100000000` to get the actual price.
+</Warning>
+
+## Client Implementation
+
+### JavaScript/TypeScript Example
+
+```typescript
+const ws = new WebSocket("ws://localhost:7070/");
+
+ws.onopen = () => {
+  console.log("WebSocket connection opened");
+};
+
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  
+  if (data.asset && data.bid && data.ask) {
+    // Convert from micro-units to regular price
+    const bidPrice = Number(data.bid) / 100000000;
+    const askPrice = Number(data.ask) / 100000000;
+    const midPrice = (bidPrice + askPrice) / 2;
+    
+    console.log(`${data.asset}: Bid=${bidPrice}, Ask=${askPrice}, Mid=${midPrice}`);
+    
+    // Update your UI with the new prices
+    updatePriceDisplay(data.asset, bidPrice, askPrice, midPrice);
+  }
+};
+
+ws.onerror = (error) => {
+  console.error("WebSocket error:", error);
+};
+
+ws.onclose = () => {
+  console.log("WebSocket connection closed");
+  // Implement reconnection logic here
+};
+```
+
+### React Hook Example
+
+```typescript
+import { useEffect, useState } from 'react';
+
+interface MarketData {
+  [symbol: string]: {
+    bid: number;
+    ask: number;
+    price: number;
+    lastUpdated: number;
+  };
+}
+
+export function useMarketData() {
+  const [marketData, setMarketData] = useState<MarketData>({});
+  const [connected, setConnected] = useState(false);
+
+  useEffect(() => {
+    const ws = new WebSocket("ws://localhost:7070/");
+
+    ws.onopen = () => {
+      console.log("Connected to market data stream");
+      setConnected(true);
+    };
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+
+      if (data.asset && data.bid && data.ask) {
+        const bidPrice = Number(data.bid) / 100000000;
+        const askPrice = Number(data.ask) / 100000000;
+        const midPrice = (bidPrice + askPrice) / 2;
+
+        setMarketData((prev) => ({
+          ...prev,
+          [data.asset]: {
+            bid: bidPrice,
+            ask: askPrice,
+            price: midPrice,
+            lastUpdated: Date.now(),
+          },
+        }));
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error("WebSocket error:", error);
+      setConnected(false);
+    };
+
+    ws.onclose = () => {
+      console.log("Disconnected from market data stream");
+      setConnected(false);
+    };
+
+    return () => {
+      ws.close();
+    };
+  }, []);
+
+  return { marketData, connected };
+}
+```
+
+### Python Example
+
+```python
+import asyncio
+import json
+import websockets
+
+async def subscribe_market_data():
+    uri = "ws://localhost:7070/"
+    
+    async with websockets.connect(uri) as websocket:
+        print("Connected to market data stream")
+        
+        async for message in websocket:
+            data = json.loads(message)
+            
+            if "asset" in data and "bid" in data and "ask" in data:
+                # Convert from micro-units to regular price
+                bid_price = float(data["bid"]) / 100000000
+                ask_price = float(data["ask"]) / 100000000
+                mid_price = (bid_price + ask_price) / 2
+                
+                print(f"{data['asset']}: Bid={bid_price:.2f}, Ask={ask_price:.2f}, Mid={mid_price:.2f}")
+
+if __name__ == "__main__":
+    asyncio.run(subscribe_market_data())
+```
+
+## Supported Symbols
+
+The WebSocket stream broadcasts updates for the following trading symbols:
+
+- **BTCUSDT** - Bitcoin / Tether
+- **ETHUSDT** - Ethereum / Tether  
+- **SOLUSDT** - Solana / Tether
+
+Additional symbols may be added in the future. Check the data stream to see all available symbols.
+
+## Architecture
+
+### Redis Pub/Sub Integration
+
+The WebSocket server operates as a bridge between Redis Pub/Sub and WebSocket clients:
+
+1. **Market data sources** publish price updates to Redis channel `binance:pubsub`
+2. **WebSocket server** subscribes to this Redis channel
+3. **Connected clients** receive real-time broadcasts of all price updates
+
+This architecture ensures:
+- Low-latency price distribution
+- Scalability across multiple WebSocket server instances
+- Decoupling of data sources from client connections
+
+## Best Practices
+
+### 1. Implement Reconnection Logic
+
+```typescript
+function connectWebSocket() {
+  const ws = new WebSocket("ws://localhost:7070/");
+  
+  ws.onclose = () => {
+    console.log("Connection lost. Reconnecting in 5 seconds...");
+    setTimeout(connectWebSocket, 5000);
+  };
+  
+  return ws;
+}
+```
+
+### 2. Handle Price Updates Efficiently
+
+Avoid blocking the main thread with heavy computations in the message handler:
+
+```typescript
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+  
+  // Queue updates for batched processing
+  requestAnimationFrame(() => {
+    processMarketData(data);
+  });
+};
+```
+
+### 3. Debounce UI Updates
+
+When receiving high-frequency updates, debounce UI rendering to maintain smooth performance:
+
+```typescript
+import { debounce } from 'lodash';
+
+const updateUI = debounce((symbol: string, price: number) => {
+  document.getElementById(symbol).textContent = price.toFixed(2);
+}, 100);
+```
+
+### 4. Monitor Connection Health
+
+Implement heartbeat monitoring to detect stale connections:
+
+```typescript
+let lastMessageTime = Date.now();
+
+ws.onmessage = (event) => {
+  lastMessageTime = Date.now();
+  // Process message...
+};
+
+setInterval(() => {
+  if (Date.now() - lastMessageTime > 30000) {
+    console.warn("No messages received for 30 seconds");
+    ws.close();
+  }
+}, 10000);
+```
+
+### 5. Calculate Spreads and Mid-Prices
+
+```typescript
+function calculateMetrics(bid: number, ask: number) {
+  const midPrice = (bid + ask) / 2;
+  const spread = ask - bid;
+  const spreadBps = (spread / midPrice) * 10000; // Spread in basis points
+  
+  return { midPrice, spread, spreadBps };
+}
+```
+
+## Error Handling
+
+### Connection Errors
+
+The server may reject connections under high load or during maintenance:
+
+```typescript
+ws.onerror = (error) => {
+  console.error("WebSocket error:", error);
+  // Implement exponential backoff for reconnection
+};
+```
+
+### Malformed Messages
+
+Always validate message structure before processing:
+
+```typescript
+ws.onmessage = (event) => {
+  try {
+    const data = JSON.parse(event.data);
+    
+    if (!data.asset || !data.bid || !data.ask) {
+      console.warn("Received incomplete market data:", data);
+      return;
+    }
+    
+    // Process valid data
+    processMarketData(data);
+  } catch (error) {
+    console.error("Failed to parse WebSocket message:", error);
+  }
+};
+```
+
+## Performance Considerations
+
+- **Message Frequency**: Expect high-frequency updates during volatile market conditions (potentially multiple updates per second per symbol)
+- **Bandwidth**: Each price update is ~50-100 bytes. With 3 symbols updating 10 times/second, expect ~1.5-3 KB/s
+- **Processing**: Use efficient data structures (e.g., Maps) for storing and looking up symbol data
+- **Memory**: Implement data retention policies to prevent memory leaks from accumulating historical ticks
+
+## Testing
+
+You can test the WebSocket connection using command-line tools:
+
+### Using wscat
+
+```bash
+npm install -g wscat
+wscat -c ws://localhost:7070/
+```
+
+### Using websocat
+
+```bash
+websocat ws://localhost:7070/
+```
+
+Both tools will display the real-time price stream in your terminal.

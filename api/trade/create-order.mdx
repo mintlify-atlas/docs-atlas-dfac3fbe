@@ -1,0 +1,167 @@
+---
+title: 'Create Order'
+api: 'POST /api/v1/trade/create'
+description: 'Create a new trading order with specified parameters'
+---
+
+Creates a new trading order for the authenticated user. The order is processed asynchronously through a Redis stream and responds within 3 seconds with the order creation result.
+
+## Authentication
+
+This endpoint requires authentication via JWT token in the Authorization header.
+
+```
+Authorization: Bearer <your_jwt_token>
+```
+
+## Request Body
+
+<ParamField body="symbol" type="string" required>
+  The trading symbol (e.g., "BTCUSD", "ETHUSD", "EURUSD")
+</ParamField>
+
+<ParamField body="type" type="string" required>
+  The order type (e.g., "BUY", "SELL")
+</ParamField>
+
+<ParamField body="quantity" type="number" required>
+  The quantity/volume to trade
+</ParamField>
+
+<ParamField body="leverage" type="number" required>
+  The leverage multiplier for the trade (e.g., 1, 10, 50, 100)
+</ParamField>
+
+<ParamField body="slippage" type="number">
+  Maximum allowed price slippage for the order execution
+</ParamField>
+
+<ParamField body="takeProfit" type="number">
+  Take profit price level - order will automatically close when this price is reached
+</ParamField>
+
+<ParamField body="stopLoss" type="number">
+  Stop loss price level - order will automatically close when this price is reached to limit losses
+</ParamField>
+
+## Response
+
+<ResponseField name="message" type="string">
+  Success message confirming the order creation
+</ResponseField>
+
+<ResponseField name="orderId" type="string">
+  Unique identifier for the created order
+</ResponseField>
+
+## Error Responses
+
+<ResponseField name="error" type="string">
+  Error message describing what went wrong
+</ResponseField>
+
+### Status Codes
+
+- `200` - Order created successfully
+- `400` - Missing required parameters or invalid order data
+- `401` - Unauthorized - invalid or expired token
+- `408` - Request timeout - order creation took longer than 3 seconds
+- `500` - Internal server error
+
+## Examples
+
+### Create a Basic Buy Order
+
+```bash
+curl -X POST https://api.exness.com/api/v1/trade/create \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "symbol": "BTCUSD",
+    "type": "BUY",
+    "quantity": 0.5,
+    "leverage": 10
+  }'
+```
+
+<ResponseExample>
+```json
+{
+  "message": "Order created successfully",
+  "orderId": "ord_1234567890abcdef"
+}
+```
+</ResponseExample>
+
+### Create Order with Take Profit and Stop Loss
+
+```bash
+curl -X POST https://api.exness.com/api/v1/trade/create \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "symbol": "ETHUSD",
+    "type": "SELL",
+    "quantity": 2.0,
+    "leverage": 20,
+    "slippage": 0.5,
+    "takeProfit": 1800.00,
+    "stopLoss": 1950.00
+  }'
+```
+
+<ResponseExample>
+```json
+{
+  "message": "Order created successfully",
+  "orderId": "ord_fedcba0987654321"
+}
+```
+</ResponseExample>
+
+### Error: Missing Required Parameters
+
+```bash
+curl -X POST https://api.exness.com/api/v1/trade/create \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "symbol": "BTCUSD",
+    "quantity": 0.5
+  }'
+```
+
+<ResponseExample>
+```json
+{
+  "error": "Missing required parameters: symbol, type, quantity, leverage"
+}
+```
+</ResponseExample>
+
+### Error: Timeout
+
+<ResponseExample>
+```json
+{
+  "error": "Request timeout: No response received within 3 seconds",
+  "message": "Order creation request timed out. The order may have been cancelled.",
+  "timeout": true
+}
+```
+</ResponseExample>
+
+## Trading Workflow
+
+1. **Authenticate** - Obtain a JWT token via the authentication endpoint
+2. **Create Order** - Use this endpoint to open a new position
+3. **Monitor Order** - Use GET `/api/v1/trade/orders` to track open positions
+4. **Close Order** - Use POST `/api/v1/trade/close` when ready to close the position
+
+## Notes
+
+- Orders are processed asynchronously through a Redis stream
+- The endpoint will timeout after 3 seconds if no response is received
+- Optional parameters (slippage, takeProfit, stopLoss) are only included if valid numeric values are provided
+- Take profit and stop loss levels help automate risk management
+- The userId is automatically extracted from the JWT token

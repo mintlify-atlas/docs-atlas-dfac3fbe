@@ -1,0 +1,543 @@
+---
+title: '@repo/ui'
+description: React component library with 50+ components built on Radix UI and Tailwind CSS
+icon: 'palette'
+---
+
+The `@repo/ui` package provides a comprehensive React component library for building consistent user interfaces across the Exness Trading Platform.
+
+## Installation
+
+This package is internal to the monorepo and installed automatically:
+
+```json
+"dependencies": {
+  "@repo/ui": "workspace:*"
+}
+```
+
+## Features
+
+- **50+ Components**: Comprehensive UI component library
+- **Radix UI**: Built on unstyled, accessible components
+- **Tailwind CSS**: Utility-first styling with CSS variables
+- **Dark Mode**: Built-in theme support with next-themes
+- **TypeScript**: Full type safety and IntelliSense
+- **Accessible**: WCAG compliant components
+- **Customizable**: Style variants using class-variance-authority
+
+## Package Structure
+
+The package exports components, utilities, and hooks through subpath exports:
+
+```typescript
+import { Button } from '@repo/ui/components/button';
+import { Card } from '@repo/ui/components/card';
+import { cn } from '@repo/ui/lib/utils';
+import { useIsMobile } from '@repo/ui/hooks/use-mobile';
+import '@repo/ui/globals.css';
+```
+
+## Available Components
+
+<CardGroup cols={3}>
+  <Card title="Accordion" icon="chevron-down">Collapsible content panels</Card>
+  <Card title="Alert" icon="triangle-exclamation">Status messages and notifications</Card>
+  <Card title="Alert Dialog" icon="message-exclamation">Modal confirmation dialogs</Card>
+  <Card title="Avatar" icon="user">User profile images</Card>
+  <Card title="Badge" icon="tag">Status indicators and labels</Card>
+  <Card title="Breadcrumb" icon="ellipsis">Navigation breadcrumbs</Card>
+  <Card title="Button" icon="hand-pointer">Interactive buttons</Card>
+  <Card title="Button Group" icon="layer-group">Grouped button controls</Card>
+  <Card title="Calendar" icon="calendar">Date picker component</Card>
+  <Card title="Card" icon="square">Content containers</Card>
+  <Card title="Carousel" icon="images">Image/content carousel</Card>
+  <Card title="Chart" icon="chart-simple">Data visualization</Card>
+  <Card title="Checkbox" icon="square-check">Checkbox inputs</Card>
+  <Card title="Collapsible" icon="compress">Expandable content</Card>
+  <Card title="Command" icon="terminal">Command palette</Card>
+  <Card title="Context Menu" icon="bars">Right-click menus</Card>
+  <Card title="Dialog" icon="window-maximize">Modal dialogs</Card>
+  <Card title="Drawer" icon="sidebar">Side panel drawers</Card>
+  <Card title="Dropdown Menu" icon="caret-down">Dropdown menus</Card>
+  <Card title="Empty" icon="inbox">Empty state displays</Card>
+  <Card title="Field" icon="input-text">Form field wrapper</Card>
+  <Card title="Form" icon="file-lines">Form components</Card>
+  <Card title="Hover Card" icon="note-sticky">Hoverable popovers</Card>
+  <Card title="Input" icon="keyboard">Text input fields</Card>
+  <Card title="Input Group" icon="layer-group">Grouped inputs</Card>
+  <Card title="Input OTP" icon="key">OTP input component</Card>
+</CardGroup>
+
+<Info>
+And 25+ more components including Labels, Menus, Modals, Popovers, Progress bars, Select dropdowns, Sliders, Tables, Tabs, Textareas, Toasts, Tooltips, and more!
+</Info>
+
+## Basic Usage
+
+### Button Component
+
+<CodeGroup>
+```typescript Variants
+import { Button } from '@repo/ui/components/button';
+
+export function ButtonDemo() {
+  return (
+    <div className="flex gap-2">
+      <Button variant="default">Default</Button>
+      <Button variant="destructive">Destructive</Button>
+      <Button variant="outline">Outline</Button>
+      <Button variant="secondary">Secondary</Button>
+      <Button variant="ghost">Ghost</Button>
+      <Button variant="link">Link</Button>
+    </div>
+  );
+}
+```
+
+```typescript Sizes
+import { Button } from '@repo/ui/components/button';
+
+export function ButtonSizes() {
+  return (
+    <div className="flex items-center gap-2">
+      <Button size="sm">Small</Button>
+      <Button size="default">Default</Button>
+      <Button size="lg">Large</Button>
+      <Button size="icon">🚀</Button>
+    </div>
+  );
+}
+```
+
+```typescript With Icons
+import { Button } from '@repo/ui/components/button';
+import { ChevronRight, Download } from 'lucide-react';
+
+export function ButtonWithIcons() {
+  return (
+    <div className="flex gap-2">
+      <Button>
+        <Download className="size-4" />
+        Download
+      </Button>
+      <Button>
+        Next
+        <ChevronRight className="size-4" />
+      </Button>
+    </div>
+  );
+}
+```
+</CodeGroup>
+
+### Card Component
+
+```typescript
+import { 
+  Card, 
+  CardHeader, 
+  CardTitle, 
+  CardDescription,
+  CardContent,
+  CardFooter,
+  CardAction
+} from '@repo/ui/components/card';
+import { Button } from '@repo/ui/components/button';
+
+export function TradingCard() {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>BTC/USDT</CardTitle>
+        <CardDescription>Bitcoin to US Dollar</CardDescription>
+        <CardAction>
+          <Button size="sm" variant="outline">Trade</Button>
+        </CardAction>
+      </CardHeader>
+      <CardContent>
+        <div className="text-3xl font-bold">$50,000.00</div>
+        <div className="text-sm text-green-600">+2.5% (24h)</div>
+      </CardContent>
+      <CardFooter>
+        <Button className="w-full">Place Order</Button>
+      </CardFooter>
+    </Card>
+  );
+}
+```
+
+## Trading Platform Examples
+
+### Order Entry Form
+
+```typescript
+import { Card, CardHeader, CardTitle, CardContent } from '@repo/ui/components/card';
+import { Button } from '@repo/ui/components/button';
+import { Input } from '@repo/ui/components/input';
+import { Label } from '@repo/ui/components/label';
+import { Select } from '@repo/ui/components/select';
+
+export function OrderForm() {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Place Order</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="space-y-2">
+          <Label htmlFor="symbol">Trading Pair</Label>
+          <Select>
+            <option value="btc">BTC/USDT</option>
+            <option value="eth">ETH/USDT</option>
+            <option value="sol">SOL/USDT</option>
+          </Select>
+        </div>
+        
+        <div className="space-y-2">
+          <Label htmlFor="quantity">Quantity</Label>
+          <Input 
+            id="quantity" 
+            type="number" 
+            placeholder="0.00" 
+          />
+        </div>
+        
+        <div className="space-y-2">
+          <Label htmlFor="price">Price (USDT)</Label>
+          <Input 
+            id="price" 
+            type="number" 
+            placeholder="0.00" 
+          />
+        </div>
+        
+        <div className="grid grid-cols-2 gap-2">
+          <Button variant="default" className="w-full">
+            Buy
+          </Button>
+          <Button variant="destructive" className="w-full">
+            Sell
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+### Price Ticker
+
+```typescript
+import { Badge } from '@repo/ui/components/badge';
+import { Card, CardContent } from '@repo/ui/components/card';
+import { ArrowUp, ArrowDown } from 'lucide-react';
+
+interface PriceTickerProps {
+  symbol: string;
+  price: number;
+  change: number;
+}
+
+export function PriceTicker({ symbol, price, change }: PriceTickerProps) {
+  const isPositive = change >= 0;
+  
+  return (
+    <Card>
+      <CardContent className="flex items-center justify-between p-4">
+        <div>
+          <div className="text-sm text-muted-foreground">{symbol}</div>
+          <div className="text-2xl font-bold">${price.toFixed(2)}</div>
+        </div>
+        <Badge 
+          variant={isPositive ? "default" : "destructive"}
+          className="flex items-center gap-1"
+        >
+          {isPositive ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />}
+          {Math.abs(change).toFixed(2)}%
+        </Badge>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+### Portfolio Overview
+
+```typescript
+import { Card, CardHeader, CardTitle, CardContent } from '@repo/ui/components/card';
+import { Progress } from '@repo/ui/components/progress';
+
+interface Asset {
+  symbol: string;
+  percentage: number;
+  value: number;
+}
+
+export function PortfolioOverview({ assets }: { assets: Asset[] }) {
+  const total = assets.reduce((sum, asset) => sum + asset.value, 0);
+  
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Portfolio Allocation</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {assets.map((asset) => (
+          <div key={asset.symbol} className="space-y-2">
+            <div className="flex justify-between text-sm">
+              <span>{asset.symbol}</span>
+              <span className="font-medium">
+                ${asset.value.toFixed(2)} ({asset.percentage.toFixed(1)}%)
+              </span>
+            </div>
+            <Progress value={asset.percentage} />
+          </div>
+        ))}
+        <div className="pt-4 border-t">
+          <div className="flex justify-between font-bold">
+            <span>Total</span>
+            <span>${total.toFixed(2)}</span>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+## Utilities
+
+### cn() - Class Name Utility
+
+Combines class names with Tailwind merge:
+
+```typescript
+import { cn } from '@repo/ui/lib/utils';
+
+export function Component({ className }: { className?: string }) {
+  return (
+    <div 
+      className={cn(
+        'rounded-lg border p-4', // Base classes
+        className // Override classes
+      )}
+    >
+      Content
+    </div>
+  );
+}
+
+// Usage
+<Component className="bg-blue-500 text-white" />
+```
+
+## Hooks
+
+### useIsMobile
+
+Detects if the viewport is mobile-sized:
+
+```typescript
+import { useIsMobile } from '@repo/ui/hooks/use-mobile';
+import { Button } from '@repo/ui/components/button';
+import { Drawer } from '@repo/ui/components/drawer';
+import { Dialog } from '@repo/ui/components/dialog';
+
+export function ResponsiveModal({ children }: { children: React.ReactNode }) {
+  const isMobile = useIsMobile();
+  
+  if (isMobile) {
+    return <Drawer>{children}</Drawer>;
+  }
+  
+  return <Dialog>{children}</Dialog>;
+}
+```
+
+## Styling
+
+### Import Global Styles
+
+Import the global styles in your root layout:
+
+```typescript
+// app/layout.tsx
+import '@repo/ui/globals.css';
+
+export default function RootLayout({ children }) {
+  return (
+    <html lang="en">
+      <body>{children}</body>
+    </html>
+  );
+}
+```
+
+### Theme Configuration
+
+The package uses CSS variables for theming:
+
+```css
+/* Customize in your app's globals.css */
+:root {
+  --background: 0 0% 100%;
+  --foreground: 222.2 84% 4.9%;
+  --primary: 222.2 47.4% 11.2%;
+  --primary-foreground: 210 40% 98%;
+  /* ... more variables */
+}
+
+.dark {
+  --background: 222.2 84% 4.9%;
+  --foreground: 210 40% 98%;
+  /* ... dark mode variables */
+}
+```
+
+### Dark Mode
+
+```typescript
+import { ThemeProvider } from 'next-themes';
+
+export function Providers({ children }: { children: React.ReactNode }) {
+  return (
+    <ThemeProvider attribute="class" defaultTheme="system">
+      {children}
+    </ThemeProvider>
+  );
+}
+```
+
+## Component Variants
+
+Many components use class-variance-authority for variants:
+
+```typescript
+import { Button, buttonVariants } from '@repo/ui/components/button';
+import Link from 'next/link';
+
+// Use as component
+<Button variant="outline" size="lg">Click me</Button>
+
+// Use variants with other elements
+<Link 
+  href="/features/real-time-trading" 
+  className={buttonVariants({ variant: "ghost" })}
+>
+  Trade
+</Link>
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Import components individually">
+    Import only the components you need to optimize bundle size:
+    
+    ```typescript
+    // Good
+    import { Button } from '@repo/ui/components/button';
+    import { Card } from '@repo/ui/components/card';
+    
+    // Avoid
+    import * from '@repo/ui';
+    ```
+  </Accordion>
+  
+  <Accordion title="Use the cn() utility">
+    Always use the `cn()` utility for combining class names:
+    
+    ```typescript
+    import { cn } from '@repo/ui/lib/utils';
+    
+    <div className={cn('base-class', conditionalClass && 'active')} />
+    ```
+  </Accordion>
+  
+  <Accordion title="Leverage component composition">
+    Build complex UIs by composing simple components:
+    
+    ```typescript
+    <Card>
+      <CardHeader>
+        <CardTitle>Title</CardTitle>
+      </CardHeader>
+      <CardContent>Content</CardContent>
+    </Card>
+    ```
+  </Accordion>
+  
+  <Accordion title="Use responsive patterns">
+    Combine components with hooks for responsive designs:
+    
+    ```typescript
+    const isMobile = useIsMobile();
+    return isMobile ? <MobileView /> : <DesktopView />;
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Customization
+
+### Extending Components
+
+```typescript
+import { Button } from '@repo/ui/components/button';
+import { cn } from '@repo/ui/lib/utils';
+
+export function TradingButton({ 
+  children, 
+  className,
+  ...props 
+}: React.ComponentProps<typeof Button>) {
+  return (
+    <Button 
+      className={cn('font-bold uppercase tracking-wide', className)}
+      {...props}
+    >
+      {children}
+    </Button>
+  );
+}
+```
+
+### Creating Custom Variants
+
+```typescript
+import { cva } from 'class-variance-authority';
+import { cn } from '@repo/ui/lib/utils';
+
+const tradingCardVariants = cva(
+  'rounded-lg border p-4',
+  {
+    variants: {
+      trend: {
+        up: 'border-green-500 bg-green-50',
+        down: 'border-red-500 bg-red-50',
+        neutral: 'border-gray-300'
+      }
+    }
+  }
+);
+
+export function TradingCard({ trend, className, children }) {
+  return (
+    <div className={cn(tradingCardVariants({ trend }), className)}>
+      {children}
+    </div>
+  );
+}
+```
+
+## Related Packages
+
+<CardGroup cols={2}>
+  <Card title="@repo/utils" icon="wrench" href="/packages/utils">
+    Utility functions for use with UI components
+  </Card>
+  
+  <Card title="@repo/types" icon="code" href="/packages/types">
+    Shared type definitions for component props
+  </Card>
+</CardGroup>

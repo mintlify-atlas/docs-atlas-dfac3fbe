@@ -1,0 +1,162 @@
+---
+title: 'Verify Token'
+api: 'GET /api/v1/auth/verify'
+description: 'Verify JWT token and complete user authentication'
+---
+
+## Overview
+
+The verify endpoint completes the authentication flow by validating the JWT token sent via email. Upon successful verification, it creates the user account in the system and redirects to the dashboard with an authenticated session.
+
+## Authentication Flow
+
+This is step 2 of the authentication process:
+
+1. User receives verification email from `/api/v1/auth/login`
+2. **User clicks verification link → `/api/v1/auth/verify?token=<JWT>`**
+3. Server validates token and creates user account
+4. User is redirected to dashboard with authenticated session
+
+## Request
+
+<ParamField query="token" type="string" required>
+  The JWT token received in the verification email. Contains encoded `userId` and `email` fields.
+</ParamField>
+
+### Query Parameters Example
+
+```
+GET /api/v1/auth/verify?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+## Response
+
+### Success Response (302 Redirect)
+
+On successful verification, the endpoint redirects to the frontend dashboard:
+
+```
+Location: https://app.exness.com/dashboard?token=<JWT_TOKEN>
+```
+
+The JWT token is included in the redirect URL for the frontend to store and use for subsequent API requests.
+
+### User Already Exists (200 OK)
+
+If the user account already exists in the system:
+
+```html
+User already existed
+```
+
+## Error Responses
+
+### 401 Unauthorized
+
+Returned when the token is invalid or expired.
+
+```
+Invalid token ❌
+```
+
+or
+
+```
+Token expired or invalid ❌
+```
+
+### 411 Length Required
+
+Returned when user creation fails or times out.
+
+```json
+{
+  "message": "Trade not placed"
+}
+```
+
+### 500 Internal Server Error
+
+Returned when the system fails to generate a request ID for user creation.
+
+```json
+{
+  "error": "Failed to generate request ID"
+}
+```
+
+## Implementation Details
+
+### Token Verification
+
+- Extracts JWT token from query parameter
+- Verifies token signature using `JWT_SECRET`
+- Decodes `userId` and `email` from token payload
+
+### User Creation Flow
+
+1. Sends `createUser` command to Redis Stream
+2. Waits for response from secondary Redis Stream (5 second timeout)
+3. Creates user account in database via Engine
+4. Handles both new users and existing users
+
+### JWT Token Structure
+
+The verified token contains:
+
+<ResponseField name="userId" type="string">
+  UUID v4 identifier for the user
+</ResponseField>
+
+<ResponseField name="email" type="string">
+  User's email address
+</ResponseField>
+
+## cURL Example
+
+```bash
+curl -X GET 'https://api.exness.com/api/v1/auth/verify?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJhYmMxMjMiLCJlbWFpbCI6InRyYWRlckBleGFtcGxlLmNvbSJ9.signature' \
+  -L
+```
+
+Note: The `-L` flag tells curl to follow redirects.
+
+## JavaScript Example
+
+```javascript
+// Typically called automatically when user clicks email link
+// The browser will follow the redirect automatically
+
+const token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...';
+window.location.href = `https://api.exness.com/api/v1/auth/verify?token=${token}`;
+
+// After redirect, extract token from URL in dashboard
+const urlParams = new URLSearchParams(window.location.search);
+const authToken = urlParams.get('token');
+
+// Store token for subsequent API requests
+localStorage.setItem('authToken', authToken);
+```
+
+## Using the JWT Token
+
+After successful verification, use the JWT token in the `Authorization` header for authenticated API requests:
+
+```bash
+curl -X POST https://api.exness.com/api/v1/trades/create \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{"symbol": "EURUSD", "amount": 1000}'
+```
+
+## Security Considerations
+
+- Tokens are signed with `JWT_SECRET` to prevent tampering
+- Token verification includes signature validation
+- User creation uses Redis Streams for reliable processing
+- 5-second timeout prevents hung requests
+- Frontend redirect includes token in URL (should be moved to secure cookie in production)
+
+## Previous Step
+
+Before using this endpoint, users must first request a verification link via the [login endpoint](/api/auth/login).

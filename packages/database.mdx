@@ -1,0 +1,520 @@
+---
+title: '@repo/db'
+description: PostgreSQL database client using Prisma ORM with Accelerate extension
+icon: 'database'
+---
+
+The `@repo/db` package provides a centralized Prisma client for PostgreSQL database operations across the Exness Trading Platform.
+
+## Installation
+
+This package is internal to the monorepo and installed automatically:
+
+```json
+"dependencies": {
+  "@repo/db": "workspace:*"
+}
+```
+
+## Features
+
+- **Prisma ORM**: Type-safe database queries with Prisma Client
+- **Accelerate Extension**: Enhanced performance with connection pooling
+- **Generated Types**: Automatic TypeScript types from schema
+- **Global Singleton**: Prevents multiple client instances in development
+
+## Database Schema
+
+The package uses PostgreSQL with the following schema:
+
+### User Model
+
+```prisma
+model User {
+  id      Int     @id       @default(autoincrement())
+  userID  String  @unique
+  email   String  @unique
+  balance Float   @default(0)
+  Orders Orders[]
+}
+```
+
+### Orders Model
+
+```prisma
+enum Symbol {
+  btc
+  sol
+  eth
+}
+
+enum OrderSide {
+  buy
+  sell
+}
+
+model Orders {
+  orderId     String    @id
+  userId      String
+  user        User      @relation(fields: [userId], references: [userID], onDelete: Cascade)
+  symbol      Symbol
+  type        OrderSide
+  quantity    Float
+  leverage    Int
+  takeProfit  Float?
+  stopLoss    Float?
+  stippage    Float?
+  openPrice   Float
+  closePrice  Float
+  openTime    DateTime
+  closeTime   DateTime
+  profitLoss  Float
+
+  @@index([userId])
+}
+```
+
+## Basic Usage
+
+### Importing the Client
+
+```typescript
+import { prisma } from '@repo/db';
+
+// Client is ready to use - no initialization needed
+const users = await prisma.user.findMany();
+```
+
+<Info>
+The Prisma client is a singleton instance with the Accelerate extension pre-configured.
+</Info>
+
+## User Operations
+
+### Create a User
+
+<CodeGroup>
+```typescript Basic
+import { prisma } from '@repo/db';
+
+const user = await prisma.user.create({
+  data: {
+    userID: 'user_123456',
+    email: 'trader@exness.com',
+    balance: 10000.00
+  }
+});
+
+console.log('Created user:', user);
+```
+
+```typescript With Initial Balance
+const newTrader = await prisma.user.create({
+  data: {
+    userID: crypto.randomUUID(),
+    email: 'newtrader@example.com',
+    balance: 5000.00
+  }
+});
+```
+</CodeGroup>
+
+### Find Users
+
+<Tabs>
+  <Tab title="By ID">
+    ```typescript
+    const user = await prisma.user.findUnique({
+      where: { userID: 'user_123456' }
+    });
+    
+    if (user) {
+      console.log(`Balance: $${user.balance}`);
+    }
+    ```
+  </Tab>
+  
+  <Tab title="By Email">
+    ```typescript
+    const user = await prisma.user.findUnique({
+      where: { email: 'trader@exness.com' }
+    });
+    ```
+  </Tab>
+  
+  <Tab title="With Orders">
+    ```typescript
+    const user = await prisma.user.findUnique({
+      where: { userID: 'user_123456' },
+      include: {
+        Orders: true
+      }
+    });
+    
+    console.log(`User has ${user?.Orders.length} orders`);
+    ```
+  </Tab>
+  
+  <Tab title="All Users">
+    ```typescript
+    const users = await prisma.user.findMany({
+      where: {
+        balance: {
+          gte: 1000 // Users with balance >= $1000
+        }
+      },
+      orderBy: {
+        balance: 'desc'
+      },
+      take: 10 // Top 10 by balance
+    });
+    ```
+  </Tab>
+</Tabs>
+
+### Update User Balance
+
+```typescript
+// Update balance after trade
+const updatedUser = await prisma.user.update({
+  where: { userID: 'user_123456' },
+  data: {
+    balance: {
+      increment: 250.50 // Add profit
+    }
+  }
+});
+
+console.log(`New balance: $${updatedUser.balance}`);
+```
+
+## Order Operations
+
+### Create an Order
+
+```typescript
+import { prisma } from '@repo/db';
+
+const order = await prisma.orders.create({
+  data: {
+    orderId: `order_${Date.now()}`,
+    userId: 'user_123456',
+    symbol: 'btc',
+    type: 'buy',
+    quantity: 0.5,
+    leverage: 10,
+    openPrice: 50000.00,
+    closePrice: 51000.00,
+    openTime: new Date(),
+    closeTime: new Date(),
+    profitLoss: 500.00,
+    takeProfit: 52000.00,
+    stopLoss: 49000.00
+  }
+});
+
+console.log('Order created:', order.orderId);
+```
+
+### Query Orders
+
+<CodeGroup>
+```typescript Get User Orders
+// Get all orders for a user
+const userOrders = await prisma.orders.findMany({
+  where: { userId: 'user_123456' },
+  orderBy: { openTime: 'desc' }
+});
+
+const totalProfit = userOrders.reduce(
+  (sum, order) => sum + order.profitLoss,
+  0
+);
+```
+
+```typescript Filter by Symbol
+// Get BTC orders only
+const btcOrders = await prisma.orders.findMany({
+  where: {
+    symbol: 'btc',
+    userId: 'user_123456'
+  },
+  include: {
+    user: true
+  }
+});
+```
+
+```typescript Profitable Orders
+// Get only profitable orders
+const profitableOrders = await prisma.orders.findMany({
+  where: {
+    profitLoss: {
+      gt: 0
+    }
+  },
+  select: {
+    orderId: true,
+    symbol: true,
+    profitLoss: true,
+    user: {
+      select: {
+        email: true
+      }
+    }
+  }
+});
+```
+</CodeGroup>
+
+### Update an Order
+
+```typescript
+// Close an order and calculate profit/loss
+const closedOrder = await prisma.orders.update({
+  where: { orderId: 'order_123' },
+  data: {
+    closePrice: 51500.00,
+    closeTime: new Date(),
+    profitLoss: 750.00
+  }
+});
+```
+
+### Delete Orders
+
+```typescript
+// Delete a specific order
+await prisma.orders.delete({
+  where: { orderId: 'order_123' }
+});
+
+// Delete all orders for a user (cascade is automatic)
+await prisma.user.delete({
+  where: { userID: 'user_123456' }
+});
+// All associated orders are deleted due to onDelete: Cascade
+```
+
+## Complex Queries
+
+### Aggregations
+
+```typescript
+// Calculate total volume and profit by symbol
+const stats = await prisma.orders.groupBy({
+  by: ['symbol'],
+  _sum: {
+    quantity: true,
+    profitLoss: true
+  },
+  _avg: {
+    profitLoss: true
+  },
+  _count: {
+    orderId: true
+  }
+});
+
+stats.forEach(stat => {
+  console.log(`${stat.symbol.toUpperCase()}:`);
+  console.log(`  Total Volume: ${stat._sum.quantity}`);
+  console.log(`  Total P/L: $${stat._sum.profitLoss}`);
+  console.log(`  Average P/L: $${stat._avg.profitLoss}`);
+  console.log(`  Order Count: ${stat._count.orderId}`);
+});
+```
+
+### Transactions
+
+```typescript
+// Execute multiple operations atomically
+const result = await prisma.$transaction(async (tx) => {
+  // Create order
+  const order = await tx.orders.create({
+    data: {
+      orderId: `order_${Date.now()}`,
+      userId: 'user_123456',
+      symbol: 'btc',
+      type: 'buy',
+      quantity: 1.0,
+      leverage: 5,
+      openPrice: 50000,
+      closePrice: 50000,
+      openTime: new Date(),
+      closeTime: new Date(),
+      profitLoss: 0
+    }
+  });
+  
+  // Deduct margin from user balance
+  const user = await tx.user.update({
+    where: { userID: 'user_123456' },
+    data: {
+      balance: {
+        decrement: 10000 // Margin required
+      }
+    }
+  });
+  
+  return { order, user };
+});
+
+console.log('Transaction completed:', result);
+```
+
+### Raw SQL Queries
+
+```typescript
+// Execute raw SQL when needed
+const topTraders = await prisma.$queryRaw`
+  SELECT 
+    u."userID",
+    u.email,
+    COUNT(o."orderId") as order_count,
+    SUM(o."profitLoss") as total_profit
+  FROM "User" u
+  LEFT JOIN "Orders" o ON u."userID" = o."userId"
+  GROUP BY u."userID", u.email
+  ORDER BY total_profit DESC
+  LIMIT 10
+`;
+```
+
+## TypeScript Types
+
+The package exports generated Prisma types:
+
+```typescript
+import { prisma, User, Orders, Symbol, OrderSide } from '@repo/db';
+
+// Use generated types
+function calculateProfit(order: Orders): number {
+  const priceDiff = order.closePrice - order.openPrice;
+  const direction = order.type === 'buy' ? 1 : -1;
+  return priceDiff * order.quantity * order.leverage * direction;
+}
+
+// Type-safe symbol enum
+const symbol: Symbol = 'btc'; // Valid
+// const invalid: Symbol = 'invalid'; // TypeScript error
+
+// Type-safe order side
+const side: OrderSide = 'buy'; // Valid
+```
+
+## Prisma Commands
+
+The package includes npm scripts for database management:
+
+<CodeGroup>
+```bash Generate Client
+# Generate Prisma Client after schema changes
+bun run --filter @repo/db db:generate
+```
+
+```bash Create Migration
+# Create and apply a new migration
+bun run --filter @repo/db db:migrate
+```
+
+```bash Deploy Migrations
+# Apply migrations in production
+bun run --filter @repo/db db:deploy
+```
+</CodeGroup>
+
+## Environment Configuration
+
+The package requires the `DATABASE_URL` environment variable:
+
+```bash
+# .env
+DATABASE_URL="postgresql://user:password@localhost:5432/exness?schema=public"
+```
+
+<Info>
+The database URL is managed by `@repo/config` and automatically loaded from environment variables.
+</Info>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use transactions for related operations">
+    When performing multiple database operations that depend on each other, wrap them in a transaction to ensure atomicity:
+    
+    ```typescript
+    await prisma.$transaction(async (tx) => {
+      // Multiple operations here
+    });
+    ```
+  </Accordion>
+  
+  <Accordion title="Select only needed fields">
+    Improve performance by selecting only the fields you need:
+    
+    ```typescript
+    const users = await prisma.user.findMany({
+      select: {
+        userID: true,
+        email: true
+        // Don't select balance if not needed
+      }
+    });
+    ```
+  </Accordion>
+  
+  <Accordion title="Use indexes for common queries">
+    The schema includes an index on `userId` in the Orders table. Add more indexes for frequently queried fields:
+    
+    ```prisma
+    @@index([symbol])
+    @@index([openTime])
+    ```
+  </Accordion>
+  
+  <Accordion title="Handle unique constraint violations">
+    Wrap operations that might violate unique constraints:
+    
+    ```typescript
+    try {
+      await prisma.user.create({ data: { ... } });
+    } catch (error) {
+      if (error.code === 'P2002') {
+        console.log('User already exists');
+      }
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Performance Optimization
+
+The package uses Prisma Accelerate for enhanced performance:
+
+```typescript
+// Accelerate provides:
+// - Connection pooling
+// - Query caching
+// - Global database cache
+
+const user = await prisma.user.findUnique({
+  where: { userID: 'user_123' },
+  cacheStrategy: { 
+    ttl: 60, // Cache for 60 seconds
+    swr: 10  // Serve stale while revalidate
+  }
+});
+```
+
+## Related Packages
+
+<CardGroup cols={2}>
+  <Card title="@repo/config" icon="gear" href="/packages/config">
+    Provides DATABASE_URL configuration
+  </Card>
+  
+  <Card title="@repo/types" icon="code" href="/packages/types">
+    Additional shared type definitions
+  </Card>
+</CardGroup>

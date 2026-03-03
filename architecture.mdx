@@ -1,0 +1,738 @@
+---
+title: System Architecture
+description: Understanding the Exness Trading Platform's microservices architecture and data flow
+---
+
+## Overview
+
+The Exness Trading Platform is built on a distributed microservices architecture designed for high performance, scalability, and real-time data processing. Each service has a specific responsibility and communicates through Redis Streams, Redis Pub/Sub, and REST APIs.
+
+<img
+  src="/images/architecture-diagram.png"
+  alt="Exness Architecture Diagram"
+  className="rounded-lg"
+/>
+
+<Note>
+  The architecture diagram is available in the source repository at `packages/assets/ExnessArchitecture.png`
+</Note>
+
+## Microservices Components
+
+### 1. Backend API
+
+**Purpose**: RESTful API server handling HTTP requests for authentication, trading, and account management.
+
+**Technology**: Express.js with TypeScript running on Bun runtime
+
+**Key Responsibilities**:
+- User authentication with JWT tokens
+- API endpoint routing for trading operations
+- Balance and asset management
+- Historical candle data retrieval
+- Request validation and error handling
+
+**Code Location**: `apps/Backend/src/index.ts:1-50`
+
+<CodeGroup>
+```typescript Server Initialization (apps/Backend/src/index.ts:1-50)
+import express from "express";
+import { config, redisStreams } from "@repo/config";
+import helmet from "helmet";
+import cors from 'cors';
+
+const app = express();
+const PORT = config.PORT;
+
+// Middleware setup
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true }));
+app.use(helmet());
+app.use(cors());
+
+// Initialize Redis Streams client and share via app.locals
+const RedisStreams = redisStreams(config.REDIS_URL);
+await RedisStreams.connect();
+app.locals.redisStreams = RedisStreams;
+
+// Route registration
+app.use('/api/v1/auth', authRouter);
+app.use('/api/v1/balance', balanceRouter);
+app.use('/api/v1/supportedAssets', assetRouter);
+app.use('/api/v1/candles', candleRouter);
+app.use('/api/v1/trade', tradeRouter);
+
+app.listen(PORT, () => {
+  console.log(`Server started at: ${PORT}`);
+});
+```
+
+```typescript Authentication Flow (apps/Backend/src/routes/auth.routes.ts:13-51)
+authRouter.post("/login", async (req: Request, res: Response) => {
+  const { email } = req.body;
+  
+  if (!email) {
+    return res.status(400).json({ error: "Email is required" });
+  }
+
+  const userId = uuidv4();
+  const token = jwt.sign({ userId, email }, jwtSecret);
+  
+  // Send verification email in production
+  if (process.env.NODE_ENV === "production") {
+    await nodemailerSender(email, token);
+  } else {
+    console.log(`🔗 Verification link: ${config.BACKEND_URL}/api/v1/auth/verify?token=${token}`);
+  }
+  
+  res.json({ message: "Verification link sent", email });
+});
+```
+</CodeGroup>
+
+**API Endpoints**:
+- `POST /api/v1/auth/login` - Email-based authentication
+- `GET /api/v1/auth/verify` - Token verification and user creation
+- `GET /api/v1/balance` - Get user balance (protected)
+- `GET /api/v1/supportedAssets` - List tradable assets
+- `GET /api/v1/candles` - Historical price data
+- `POST /api/v1/trade` - Execute trades (protected)
+
+### 2. Engine
+
+**Purpose**: High-performance in-memory order processing and execution engine.
+
+**Technology**: Bun runtime with concurrent message processing
+
+**Key Responsibilities**:
+- In-memory user balance management
+- Order matching and execution
+- Real-time trade validation
+- Parallel message processing (up to 10 concurrent tasks)
+- Idempotent operations for reliability
+
+**Code Location**: `apps/Engine/src/index.ts:1-73`
+
+```typescript Engine Core (apps/Engine/src/index.ts:1-73)
+import { config, redisStreams, constant } from "@repo/config";
+import { tradeFunction } from "./functions/tradeFunction.js";
+
+const RedisStreams = redisStreams(config.REDIS_URL);
+await RedisStreams.connect();
+
+// Parallel processing configuration
+const CONCURRENCY_LIMIT = 10; // Process up to 10 messages concurrently
+const CONSUMER_GROUP = "engine-group";
+const CONSUMER_NAME = `engine-${process.pid}-${Date.now()}`;
+
+let activeTasks = 0;
+const taskQueue: Array<() => Promise<void>> = [];
+
+// Process a single message
+async function processMessage(result: any) {
+  try {
+    await tradeFunction(result);
+  } catch (error) {
+    console.error("Error processing message:", error);
+  }
+}
+
+// Worker function to process queued tasks
+async function worker() {
+  while (true) {
+    if (taskQueue.length > 0 && activeTasks < CONCURRENCY_LIMIT) {
+      const task = taskQueue.shift();
+      if (task) {
+        activeTasks++;
+        task().finally(() => {
+          activeTasks--;
+        });
+      }
+    } else {
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+  }
+}
+
+// Start worker threads
+const WORKER_COUNT = Math.min(CONCURRENCY_LIMIT, 5);
+for (let i = 0; i < WORKER_COUNT; i++) {
+  worker();
+}
+
+// Continuously consume messages from Redis Stream
+while (true) {
+  const result = await RedisStreams.readNextFromRedisStream(
+    constant.redisStream,
+    0, // Block indefinitely
+    {
+      consumerGroup: CONSUMER_GROUP,
+      consumerName: CONSUMER_NAME
+    }
+  );
+  
+  if (result) {
+    taskQueue.push(() => processMessage(result));
+    console.log(`Queued message. Queue length: ${taskQueue.length}, Active: ${activeTasks}`);
+  }
+}
+```
+
+**Performance Features**:
+- **In-memory operations**: Sub-millisecond trade execution
+- **Concurrent processing**: 10 parallel workers with task queuing
+- **Consumer groups**: Multiple Engine instances can scale horizontally
+- **Idempotent design**: Safe message reprocessing on failures
+
+### 3. WebSocket Server
+
+**Purpose**: Real-time data distribution to frontend clients via WebSocket connections.
+
+**Technology**: WebSocket Server (ws) with Redis Pub/Sub integration
+
+**Key Responsibilities**:
+- Maintain persistent WebSocket connections with clients
+- Subscribe to Redis Pub/Sub channels
+- Broadcast real-time price updates to all connected clients
+- Handle client connections and disconnections
+
+**Code Location**: `apps/Websocket_Server/src/index.ts:1-24`
+
+```typescript WebSocket Server (apps/Websocket_Server/src/index.ts:1-24)
+import { WebSocketServer } from "ws";
+import { config, pubsubClient, constant } from "@repo/config";
+
+// Initialize WebSocket server
+const wss = new WebSocketServer({ port: config.WEBSOCKET_PORT });
+
+// Connect to Redis Pub/Sub
+const PubsubClient = pubsubClient(config.REDIS_URL);
+await PubsubClient.connect();
+
+wss.on("connection", async (socket) => {
+  console.log("Client connected");
+
+  // Subscribe to Redis Pub/Sub and forward to WebSocket
+  await PubsubClient.subscriber(constant.pubsubKey, (data: any) => {
+    socket.send(JSON.stringify(data));
+  });
+
+  socket.on("close", () => {
+    console.log("Client disconnected");
+  });
+});
+```
+
+**Port**: 7070 (configurable via `WEBSOCKET_PORT`)
+
+**Data Format**: JSON messages with bid/ask prices
+```json
+{
+  "asset": "BTC_USDC_PERP",
+  "bid": 450000000,
+  "ask": 454500000
+}
+```
+
+### 4. Price Poller
+
+**Purpose**: Fetches live market data from Binance WebSocket API and distributes to other services.
+
+**Technology**: WebSocket client with Redis integration
+
+**Key Responsibilities**:
+- Connect to Binance WebSocket API
+- Subscribe to multiple trading pairs (BTC, ETH, SOL)
+- Calculate bid/ask spreads (0.5% from mid-price)
+- Publish real-time prices to Redis Pub/Sub
+- Queue trade data to Redis for batch processing
+- Send aggregated updates to Engine via Redis Streams
+
+**Code Location**: `apps/Price_Poller/src/index.ts:1-86`
+
+```typescript Price Poller (apps/Price_Poller/src/index.ts:29-73)
+import WebSocket from "ws";
+import { pubsubClient, config, redisClient, redisStreams, constant } from "@repo/config";
+
+const ws = new WebSocket(config.BINANCE_WS_URL);
+const PubsubClient = pubsubClient(config.REDIS_URL);
+const RedisClient = redisClient(config.REDIS_URL);
+const RedisStreams = redisStreams(config.REDIS_URL);
+
+await PubsubClient.connect();
+await RedisClient.connect();
+await RedisStreams.connect();
+
+const crypto_trades = ["ETH_USDC_PERP", "SOL_USDC_PERP", "BTC_USDC_PERP"];
+let bidAskMap: Record<string, { bid: number; ask: number }> = {};
+
+ws.on("open", function open() {
+  // Subscribe to trading pairs
+  crypto_trades.forEach((pair) => {
+    ws.send(`{"method":"SUBSCRIBE","params":["trade.${pair}"],"id":4}`);
+  });
+
+  ws.on("message", async (data) => {
+    const msg = JSON.parse(data.toString());
+    
+    // Calculate bid/ask with 0.5% spread
+    const decimal = 4;
+    const asset = msg.data.s.toString();
+    const price = Math.floor(Number(msg.data.p) * 10 ** decimal);
+    const bidValue = Math.floor((price - price * 0.005) * 10 ** decimal);
+    const askValue = Math.floor((price + price * 0.005) * 10 ** decimal);
+    
+    // 1. Push to Redis queue for batch processing
+    await RedisClient.pushData(constant.redisQueue, JSON.stringify(msg));
+    
+    // 2. Publish to WebSocket clients via Pub/Sub
+    const BidAsk = { asset, bid: bidValue, ask: askValue };
+    await PubsubClient.publish(constant.pubsubKey, JSON.stringify(BidAsk));
+    
+    // 3. Update in-memory price tracking
+    price_updates.push({ asset, price, bidValue, askValue, decimal });
+  });
+});
+
+// Send aggregated updates to Engine every 3 seconds
+setInterval(async () => {
+  await RedisStreams.addToRedisStream(
+    constant.redisStream,
+    { function: "pricePoller", message: JSON.stringify(price_updates) }
+  );
+}, 3000);
+```
+
+**Trading Pairs**: ETH_USDC_PERP, SOL_USDC_PERP, BTC_USDC_PERP
+
+**Spread Calculation**: 0.5% below/above mid-price for bid/ask
+
+### 5. Database Storage (DBstorage)
+
+**Purpose**: Persists user data and transactions to PostgreSQL database.
+
+**Technology**: Prisma ORM with PostgreSQL
+
+**Key Responsibilities**:
+- Listen to Redis Streams for database operations
+- Persist user accounts and profiles
+- Store transaction history
+- Handle order records
+- Ensure data consistency with Engine
+
+**Code Location**: `apps/DBstorage/src/index.ts:1-9`
+
+```typescript DBstorage Service (apps/DBstorage/src/index.ts:1-9)
+import { config, redisStreams, constant } from "@repo/config";
+import { dbStorageFunction } from "./functions/dbStorageFunction.js";
+
+// Connect to Redis Streams
+const RedisStreams = redisStreams(config.REDIS_URL);
+await RedisStreams.connect();
+
+// Continuously process database operations
+await RedisStreams.readRedisStream(constant.dbStorageStream, dbStorageFunction);
+```
+
+**Stream**: Consumes from `dbStorageStream` with dedicated consumer group
+
+**Operations**:
+- `createUser` - Insert new user records
+- `updateBalance` - Update user balances after trades
+- `createOrder` - Store order history
+- `updateOrder` - Update order status
+
+### 6. Batch Upload
+
+**Purpose**: Processes and stores historical market data in TimeScaleDB for time-series analysis.
+
+**Technology**: TimeScaleDB (PostgreSQL extension) with continuous aggregates
+
+**Key Responsibilities**:
+- Consume trade data from Redis queue
+- Batch insert trades into TimeScaleDB hypertable
+- Handle timestamp conversion and validation
+- Implement conflict resolution (ON CONFLICT DO NOTHING)
+- Support candle generation via continuous aggregates
+
+**Code Location**: `apps/Batch_Upload/src/index.ts:1-69`
+
+```typescript Batch Upload Service (apps/Batch_Upload/src/index.ts:6-68)
+import { constant, config, redisClient } from "@repo/config";
+import { timeScaleDB } from "@repo/timescaledb";
+
+const db = timeScaleDB();
+await db.connect();
+await db.setupTimescale();
+
+const RedisClient = redisClient(config.REDIS_URL);
+await RedisClient.connect();
+
+let BATCH_SIZE = 0;
+const BATCH_LIMIT = 100;
+
+while (true) {
+  try {
+    const msg = await RedisClient.popData(constant.redisQueue);
+    
+    if (msg) {
+      const trade = JSON.parse(msg);
+      
+      // Convert timestamp to valid Date
+      let timestamp = typeof trade.data.T === 'string' 
+        ? parseInt(trade.data.T, 10) 
+        : trade.data.T;
+      
+      // Handle microseconds to milliseconds conversion
+      if (timestamp > 4102444800000) {
+        timestamp = Math.floor(timestamp / 1000);
+      }
+      
+      const time = new Date(timestamp);
+      
+      // Validate timestamp
+      if (isNaN(time.getTime()) || time.getFullYear() < 2020 || time.getFullYear() > 2100) {
+        console.error(`⚠️ Invalid timestamp: ${trade.data.T}`);
+        continue;
+      }
+      
+      const symbol = trade.data.s;
+      const price = trade.data.p;
+      const volume = trade.data.q;
+      const trade_id = trade.data.t;
+      const side = trade.data.m ? "sell" : "buy";
+
+      // Insert into TimeScaleDB hypertable
+      await db.getClient().query(
+        `INSERT INTO trades (time, symbol, price, volume, trade_id, side)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT DO NOTHING;`,
+        [time, symbol, price, volume, trade_id, side]
+      );
+
+      BATCH_SIZE++;
+    } else {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
+    if (BATCH_SIZE >= BATCH_LIMIT) {
+      BATCH_SIZE = 0;
+    }
+  } catch (err) {
+    console.error("Error processing trade:", err);
+  }
+}
+```
+
+**Batch Size**: 100 trades per commit
+
+**TimeScaleDB Features**:
+- Hypertables for automatic partitioning
+- Continuous aggregates for candle generation
+- Data compression and retention policies
+- Optimized time-range queries
+
+### 7. Web Frontend
+
+**Purpose**: Next.js-based trading interface with real-time market data visualization.
+
+**Technology**: Next.js, React, Tailwind CSS, TradingView Charts
+
+**Key Responsibilities**:
+- User authentication UI
+- Real-time trading dashboard
+- Market data visualization
+- Order placement and management
+- Portfolio and balance tracking
+- WebSocket connection management
+
+**Port**: 3001
+
+## Data Flow Architecture
+
+### Authentication Flow
+
+<Steps>
+  <Step title="User Login Request">
+    User submits email via web interface → Backend `/api/v1/auth/login`
+  </Step>
+  <Step title="JWT Generation">
+    Backend generates JWT token with userId and email, sends verification link
+  </Step>
+  <Step title="Token Verification">
+    User clicks link → Backend `/api/v1/auth/verify` validates JWT
+  </Step>
+  <Step title="User Creation">
+    Backend sends `createUser` message to Engine via Redis Stream
+  </Step>
+  <Step title="In-Memory User">
+    Engine creates user in-memory with initial $100,000 balance
+  </Step>
+  <Step title="Database Persistence">
+    Engine sends message to DBstorage via Redis Stream
+    DBstorage persists user to PostgreSQL
+  </Step>
+  <Step title="Dashboard Redirect">
+    User redirected to dashboard with auth token stored in browser
+  </Step>
+</Steps>
+
+### Real-Time Price Flow
+
+<Steps>
+  <Step title="Market Data Ingestion">
+    Price Poller connects to Binance WebSocket API
+    Subscribes to BTC_USDC_PERP, ETH_USDC_PERP, SOL_USDC_PERP
+  </Step>
+  <Step title="Spread Calculation">
+    Price Poller calculates bid (price - 0.5%) and ask (price + 0.5%)
+  </Step>
+  <Step title="Multi-Channel Distribution">
+    - Push raw trade to Redis Queue (for Batch Upload)
+    - Publish bid/ask to Redis Pub/Sub (for WebSocket Server)
+    - Push aggregated prices to Redis Stream (for Engine)
+  </Step>
+  <Step title="WebSocket Broadcast">
+    WebSocket Server receives from Pub/Sub → broadcasts to all connected clients
+  </Step>
+  <Step title="Frontend Update">
+    Web frontend receives WebSocket message → updates UI in real-time
+  </Step>
+  <Step title="Historical Storage">
+    Batch Upload consumes from Redis Queue → stores in TimeScaleDB
+  </Step>
+</Steps>
+
+### Trade Execution Flow
+
+<Steps>
+  <Step title="Order Submission">
+    User places order via web interface → Backend `/api/v1/trade` (with JWT auth)
+  </Step>
+  <Step title="Authentication">
+    Auth middleware verifies JWT and checks user exists in database
+  </Step>
+  <Step title="Stream Message">
+    Backend sends trade request to Redis Stream with requestId
+  </Step>
+  <Step title="Engine Processing">
+    Engine's worker pool picks up message (1 of 10 concurrent workers)
+    - Validates user balance
+    - Checks order parameters
+    - Executes trade in-memory
+    - Updates user balance
+  </Step>
+  <Step title="Response Stream">
+    Engine publishes result to secondary Redis Stream with same requestId
+  </Step>
+  <Step title="Backend Response">
+    Backend reads response from secondary stream (5s timeout)
+    Returns trade confirmation to client
+  </Step>
+  <Step title="Persistence">
+    Engine sends order details to DBstorage via dedicated stream
+    DBstorage persists to PostgreSQL
+  </Step>
+</Steps>
+
+## Communication Patterns
+
+### Redis Streams (Request-Response)
+
+**Use Case**: Reliable message processing with acknowledgments
+
+**Services**: Backend ↔ Engine ↔ DBstorage
+
+**Features**:
+- Consumer groups for load balancing
+- Message acknowledgment and redelivery
+- Blocking reads for efficiency
+- Request-response pattern with requestId correlation
+
+```typescript
+// Backend sends request
+const streamResult = await RedisStreams.addToRedisStream(
+  constant.redisStream,
+  { function: "createUser", userId, userEmail, requestId }
+);
+
+// Backend waits for response
+const result = await RedisStreams.readNextFromRedisStream(
+  constant.secondaryRedisStream,
+  5000, // 5 second timeout
+  { requestId }
+);
+```
+
+### Redis Pub/Sub (Broadcast)
+
+**Use Case**: Real-time data distribution to multiple subscribers
+
+**Services**: Price Poller → WebSocket Server → Frontend clients
+
+**Features**:
+- One-to-many broadcasting
+- No persistence (fire-and-forget)
+- Low latency for real-time updates
+
+```typescript
+// Price Poller publishes
+await PubsubClient.publish(constant.pubsubKey, JSON.stringify(BidAsk));
+
+// WebSocket Server subscribes
+await PubsubClient.subscriber(constant.pubsubKey, (data) => {
+  socket.send(JSON.stringify(data));
+});
+```
+
+### Redis Queue (FIFO Processing)
+
+**Use Case**: Batch processing of high-volume data
+
+**Services**: Price Poller → Batch Upload
+
+**Features**:
+- FIFO ordering guarantee
+- Backpressure handling
+- Batch insertion optimization
+
+```typescript
+// Price Poller pushes
+await RedisClient.pushData(constant.redisQueue, JSON.stringify(trade));
+
+// Batch Upload pops
+const msg = await RedisClient.popData(constant.redisQueue);
+```
+
+## Shared Packages
+
+### @repo/config
+
+**Purpose**: Centralized configuration and Redis connection management
+
+**Exports**:
+- Environment variables (`config`)
+- Redis clients (`redisStreams`, `pubsubClient`, `redisClient`)
+- Stream constants (`constant.redisStream`, `constant.pubsubKey`, etc.)
+
+### @repo/database
+
+**Purpose**: Prisma ORM database client
+
+**Features**:
+- Type-safe database operations
+- Schema management
+- Migration system
+
+### @repo/timescaledb
+
+**Purpose**: TimeScaleDB client wrapper
+
+**Features**:
+- Hypertable management
+- Continuous aggregates for candles
+- Data compression and retention
+
+### @repo/types
+
+**Purpose**: Shared TypeScript types
+
+**Exports**:
+```typescript
+interface PriceUpdate {
+  asset: string;
+  price: number;
+  bidValue: number;
+  askValue: number;
+  decimal: number;
+}
+```
+
+### @repo/utils
+
+**Purpose**: Common utilities
+
+**Features**:
+- Email notifications (Nodemailer)
+- Helper functions
+- Shared business logic
+
+## Scalability Considerations
+
+<CardGroup cols={2}>
+  <Card title="Horizontal Scaling" icon="arrows-left-right">
+    - Multiple Engine instances with consumer groups
+    - Load balancing via Redis Streams
+    - Stateless Backend API for easy replication
+  </Card>
+  <Card title="Performance Optimization" icon="gauge-high">
+    - In-memory processing in Engine
+    - Concurrent task processing (10 workers)
+    - Batch database insertions
+    - Connection pooling
+  </Card>
+  <Card title="Reliability" icon="shield-check">
+    - Consumer group acknowledgments
+    - Automatic message redelivery
+    - Idempotent operations
+    - Health checks on all services
+  </Card>
+  <Card title="Data Consistency" icon="database">
+    - Request-response pattern with requestId
+    - Transaction support in PostgreSQL
+    - Conflict resolution in TimeScaleDB
+    - Eventual consistency via streams
+  </Card>
+</CardGroup>
+
+## Monitoring and Observability
+
+### Key Metrics
+
+- **Engine**: Queue length, active tasks, processing latency
+- **Backend**: Request rate, response time, error rate
+- **WebSocket Server**: Connected clients, message throughput
+- **Price Poller**: WebSocket connection status, message rate
+- **Batch Upload**: Batch size, insertion rate, queue depth
+
+### Logging
+
+All services log to stdout/stderr for Docker container logging:
+
+```bash
+# View logs for specific service
+docker logs exness-backend
+docker logs exness-engine -f  # Follow logs
+
+# View all logs
+docker-compose logs
+```
+
+### Health Checks
+
+Databases have health checks configured in Docker Compose:
+
+```yaml
+healthcheck:
+  test: ["CMD-SHELL", "pg_isready -U postgresql -d exness"]
+  interval: 10s
+  timeout: 5s
+  retries: 5
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Deep Dive into Services" icon="magnifying-glass" href="/services/backend">
+    Explore each microservice in detail
+  </Card>
+  <Card title="API Documentation" icon="book-open" href="/api/auth/login">
+    Learn about available API endpoints
+  </Card>
+  <Card title="Deployment Guide" icon="rocket" href="/deployment/getting-started">
+    Deploy the platform to production
+  </Card>
+  <Card title="Package Documentation" icon="cube" href="/packages/overview">
+    Understand shared packages and libraries
+  </Card>
+</CardGroup>

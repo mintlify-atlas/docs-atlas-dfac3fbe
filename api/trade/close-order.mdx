@@ -1,0 +1,150 @@
+---
+title: 'Close Order'
+api: 'POST /api/v1/trade/close'
+description: 'Close an existing open trading order'
+---
+
+Closes an existing open order for the authenticated user. The order is closed at the current market price and the position is settled.
+
+## Authentication
+
+This endpoint requires authentication via JWT token in the Authorization header.
+
+```
+Authorization: Bearer <your_jwt_token>
+```
+
+## Request Body
+
+<ParamField body="orderId" type="string" required>
+  The unique identifier of the order to close. This is the orderId returned when the order was created.
+</ParamField>
+
+## Response
+
+<ResponseField name="message" type="string">
+  Success message confirming the order was closed
+</ResponseField>
+
+<ResponseField name="order" type="object">
+  The closed order details
+  
+  <ResponseField name="order.orderId" type="string">
+    The unique identifier of the closed order
+  </ResponseField>
+  
+  <ResponseField name="order.status" type="string">
+    The final status of the order (e.g., "CLOSED")
+  </ResponseField>
+  
+  <ResponseField name="order.closePrice" type="number">
+    The price at which the order was closed
+  </ResponseField>
+  
+  <ResponseField name="order.profit" type="number">
+    The profit or loss from the closed order
+  </ResponseField>
+</ResponseField>
+
+## Error Responses
+
+<ResponseField name="error" type="string">
+  Error message describing what went wrong
+</ResponseField>
+
+### Status Codes
+
+- `200` - Order closed successfully
+- `400` - Missing orderId, order not found, or order already closed
+- `401` - Unauthorized - invalid or expired token
+- `500` - Internal server error
+
+## Examples
+
+### Close an Order
+
+```bash
+curl -X POST https://api.exness.com/api/v1/trade/close \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "orderId": "ord_1234567890abcdef"
+  }'
+```
+
+<ResponseExample>
+```json
+{
+  "message": "Order closed successfully",
+  "order": {
+    "orderId": "ord_1234567890abcdef",
+    "status": "CLOSED",
+    "closePrice": 42350.75,
+    "profit": 125.50
+  }
+}
+```
+</ResponseExample>
+
+### Error: Missing Order ID
+
+```bash
+curl -X POST https://api.exness.com/api/v1/trade/close \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+<ResponseExample>
+```json
+{
+  "error": "Missing required parameters: orderId"
+}
+```
+</ResponseExample>
+
+### Error: Order Not Found
+
+```bash
+curl -X POST https://api.exness.com/api/v1/trade/close \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "orderId": "ord_nonexistent"
+  }'
+```
+
+<ResponseExample>
+```json
+{
+  "error": "Order not found or already closed",
+  "message": "Order not found or already closed"
+}
+```
+</ResponseExample>
+
+### Error: Order ID Mismatch
+
+<ResponseExample>
+```json
+{
+  "error": "Order ID mismatch"
+}
+```
+</ResponseExample>
+
+## Trading Workflow
+
+1. **Get Open Orders** - Use GET `/api/v1/trade/orders` to see all open positions
+2. **Select Order** - Choose the orderId of the position you want to close
+3. **Close Order** - Use this endpoint to close the position at market price
+4. **View Closed Orders** - Use GET `/api/v1/trade/close` to see your trading history
+
+## Notes
+
+- Only the user who created the order can close it (verified via JWT token)
+- Orders are closed at the current market price
+- The close operation is processed asynchronously through a Redis stream
+- The endpoint will timeout after 5 seconds if no response is received
+- Closing an order calculates the final profit/loss based on entry and exit prices
+- Once closed, an order cannot be reopened - you would need to create a new order

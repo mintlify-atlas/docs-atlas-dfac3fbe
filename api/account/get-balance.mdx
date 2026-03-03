@@ -1,0 +1,102 @@
+---
+title: 'Get Balance'
+api: 'GET /api/v1/balance'
+description: 'Retrieve the current balance for the authenticated user'
+---
+
+## Authentication
+
+This endpoint requires authentication. Include a valid JWT token in the Authorization header.
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token for authentication
+  
+  Format: `Bearer <your_jwt_token>`
+</ParamField>
+
+## Response
+
+<ResponseField name="status" type="string">
+  The status of the request. Returns `"success"` on successful retrieval.
+</ResponseField>
+
+<ResponseField name="message" type="number">
+  The user's current account balance
+</ResponseField>
+
+## Response Examples
+
+<ResponseExample>
+```json Success Response
+{
+  "status": "success",
+  "message": 10000
+}
+```
+</ResponseExample>
+
+<ResponseExample>
+```json Unauthorized
+{
+  "error": "Unauthorized"
+}
+```
+</ResponseExample>
+
+<ResponseExample>
+```json User Not Found
+{
+  "status": "error",
+  "message": "User not found"
+}
+```
+</ResponseExample>
+
+<ResponseExample>
+```json Token Expired
+{
+  "error": "Token expired or invalid ❌"
+}
+```
+</ResponseExample>
+
+## Error Codes
+
+| Status Code | Description |
+|-------------|-------------|
+| 200 | Balance retrieved successfully |
+| 401 | Unauthorized - Missing or invalid authentication token |
+| 404 | User not found |
+| 500 | Internal server error or failed to fetch balance from database |
+
+## Code Example
+
+```bash cURL
+curl --location 'https://api.exness.com/api/v1/balance' \
+--header 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.exness.com/api/v1/balance', {
+  method: 'GET',
+  headers: {
+    'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+  }
+});
+
+const data = await response.json();
+console.log('Current balance:', data.message);
+```
+
+```python Python
+import requests
+
+url = 'https://api.exness.com/api/v1/balance'
+headers = {
+    'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'
+}
+
+response = requests.get(url, headers=headers)
+data = response.json()
+print(f"Current balance: {data['message']}")
+```

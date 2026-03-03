@@ -1,0 +1,123 @@
+---
+title: 'Get Supported Assets'
+api: 'GET /api/v1/supportedAssets'
+description: 'Retrieve the list of all supported cryptocurrency assets for trading'
+---
+
+## Authentication
+
+This endpoint does not require authentication.
+
+## Response
+
+Returns an array of supported cryptocurrency assets.
+
+<ResponseField name="symbol" type="string">
+  The ticker symbol of the cryptocurrency (e.g., "BTC", "ETH", "SOL")
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  The full name of the cryptocurrency
+</ResponseField>
+
+<ResponseField name="imageUrl" type="string">
+  URL to the cryptocurrency's logo or image
+</ResponseField>
+
+## Response Example
+
+<ResponseExample>
+```json Success Response
+[
+  {
+    "symbol": "BTC",
+    "name": "Bitcoin",
+    "imageUrl": "https://img.freepik.com/free-vector/cryptocurrency-bitcoin-golden-coin-background_1017-31505.jpg"
+  },
+  {
+    "symbol": "ETH",
+    "name": "Ethereum",
+    "imageUrl": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTJDn0ojTITvcdAzMsfBMJaZC4STaDHzduleQ&s"
+  },
+  {
+    "symbol": "SOL",
+    "name": "Solana",
+    "imageUrl": "https://s2.coinmarketcap.com/static/img/coins/200x200/5426.png"
+  }
+]
+```
+</ResponseExample>
+
+## Error Codes
+
+| Status Code | Description |
+|-------------|-------------|
+| 200 | Assets retrieved successfully |
+| 500 | Internal server error |
+
+## Code Example
+
+```bash cURL
+curl --location 'https://api.exness.com/api/v1/supportedAssets'
+```
+
+```javascript JavaScript
+const response = await fetch('https://api.exness.com/api/v1/supportedAssets', {
+  method: 'GET'
+});
+
+const assets = await response.json();
+console.log('Supported assets:', assets);
+
+// Display assets in your UI
+assets.forEach(asset => {
+  console.log(`${asset.name} (${asset.symbol})`);
+});
+```
+
+```python Python
+import requests
+
+url = 'https://api.exness.com/api/v1/supportedAssets'
+response = requests.get(url)
+assets = response.json()
+
+print('Supported assets:')
+for asset in assets:
+    print(f"{asset['name']} ({asset['symbol']})")
+```
+
+## Use Cases
+
+### Display Available Trading Pairs
+
+Use this endpoint to populate a dropdown or list of available cryptocurrencies for trading:
+
+```javascript Example: Populate Trading UI
+const assets = await fetch('https://api.exness.com/api/v1/supportedAssets')
+  .then(res => res.json());
+
+// Create trading pair selector
+const tradingPairs = assets.map(asset => ({
+  value: asset.symbol,
+  label: asset.name,
+  icon: asset.imageUrl
+}));
+```
+
+### Validate Trading Requests
+
+Before placing trades, verify that the requested asset is supported:
+
+```javascript Example: Asset Validation
+const supportedAssets = await fetch('https://api.exness.com/api/v1/supportedAssets')
+  .then(res => res.json());
+
+const isSupported = (symbol) => {
+  return supportedAssets.some(asset => asset.symbol === symbol);
+};
+
+if (isSupported('BTC')) {
+  // Proceed with trade
+}
+```

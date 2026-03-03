@@ -1,0 +1,543 @@
+---
+title: Backend API Service
+description: REST API service handling authentication, trading operations, balance management, and market data retrieval
+---
+
+## Overview
+
+The Backend API service is the primary REST API gateway for the Exness Trading Platform. It provides authenticated endpoints for user management, trade execution, balance queries, asset information, and candlestick data retrieval. Built with Express.js, it communicates with other services via Redis Streams for asynchronous processing.
+
+**Location:** `apps/Backend/src/index.ts:1`
+
+**Port:** 8000
+
+## Key Features
+
+- JWT-based authentication with email verification
+- Redis Streams integration for async request/response patterns
+- RESTful endpoints for trading, balance, and market data
+- Security hardening with Helmet and CORS
+- Real-time communication with Engine service via Redis
+
+## Architecture
+
+### Service Initialization
+
+<CodeGroup>
+```typescript apps/Backend/src/index.ts
+import "dotenv/config";
+import express from "express";
+import cookieParser from "cookie-parser";
+import { config, redisStreams } from "@repo/config";
+import helmet from "helmet";
+import cors from 'cors';
+
+const app = express();
+const PORT = config.PORT;
+
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
+app.use(helmet());
+app.use(cors());
+
+// Initialize Redis Streams client
+const RedisStreams = redisStreams(config.REDIS_URL);
+await RedisStreams.connect();
+app.locals.redisStreams = RedisStreams;
+
+app.listen(PORT, () => {
+  console.log(`Server started at: ${PORT}`);
+});
+```
+</CodeGroup>
+
+## API Endpoints
+
+### Authentication Routes
+
+#### POST /api/v1/auth/login
+
+Initiates user login by sending a verification email with JWT token.
+
+<ParamField path="email" type="string" required>
+  User's email address
+</ParamField>
+
+<CodeGroup>
+```typescript apps/Backend/src/routes/auth.routes.ts
+authRouter.post("/login", async (req: Request, res: Response) => {
+  const { email } = req.body;
+  
+  if (!email) {
+    return res.status(400).json({ error: "Email is required" });
+  }
+
+  const userId = uuidv4();
+  const token = jwt.sign({ userId: userId, email: email }, jwtSecret);
+  
+  // Send verification email
+  await nodemailerSender(email, token);
+  
+  res.json({ message: "Verification link send", email });
+});
+```
+</CodeGroup>
+
+#### GET /api/v1/auth/verify
+
+Verifies JWT token and creates user account via Engine service.
+
+<ParamField query="token" type="string" required>
+  JWT verification token from email
+</ParamField>
+
+<CodeGroup>
+```typescript apps/Backend/src/routes/auth.routes.ts
+authRouter.get("/verify", async (req: Request, res: Response) => {
+  const token = req.query.token;
+  const verify = jwt.verify(token, jwtSecret);
+  
+  if (verify) {
+    const userEmail = verify.email;
+    const userId = verify.userId;
+    
+    const RedisStreams = req.app.locals.redisStreams;
+    
+    // Send createUser request to Engine
+    const streamResult = await RedisStreams.addToRedisStream(
+      constant.redisStream,
+      {
+        function: "createUser",
+        userId,
+        userEmail,
+      }
+    );
+    
+    // Wait for Engine response
+    const result = await RedisStreams.readNextFromRedisStream(
+      constant.secondaryRedisStream,
+      5000,
+      { requestId: streamResult.requestId }
+    );
+    
+    if (result && result.function === "createUser") {
+      return res.redirect(`${config.FRONTEND_URL}/dashboard?token=${token}`);
+    }
+  }
+  
+  return res.status(401).send("Invalid token ❌");
+});
+```
+</CodeGroup>
+
+### Trading Routes
+
+#### POST /api/v1/trade/create
+
+Creates a new trading order (buy/sell).
+
+<ParamField path="symbol" type="string" required>
+  Trading pair symbol (e.g., "BTCUSDT", "ETHUSDT", "SOLUSDT")
+</ParamField>
+
+<ParamField path="type" type="string" required>
+  Order type: "buy" or "sell"
+</ParamField>
+
+<ParamField path="quantity" type="number" required>
+  Order quantity in base currency
+</ParamField>
+
+<ParamField path="leverage" type="number" required>
+  Leverage multiplier (1-100)
+</ParamField>
+
+<ParamField path="slippage" type="number">
+  Maximum acceptable price slippage percentage
+</ParamField>
+
+<ParamField path="takeProfit" type="number">
+  Take profit price level
+</ParamField>
+
+<ParamField path="stopLoss" type="number">
+  Stop loss price level
+</ParamField>
+
+<CodeGroup>
+```typescript apps/Backend/src/routes/trade.routes.ts
+tradeRouter.post("/create", authMiddleware, async (req: Request, res: Response) => {
+  const { symbol, type, quantity, leverage, slippage, takeProfit, stopLoss } = req.body;
+  const userId = req.user?.id;
+  
+  if (!symbol || !type || !quantity || !leverage) {
+    return res.status(400).json({
+      error: "Missing required parameters: symbol, type, quantity, leverage",
+    });
+  }
+  
+  const RedisStreams = req.app.locals.redisStreams;
+  
+  // Build order payload
+  const orderPayload = {
+    function: "createOrder",
+    userId,
+    symbol,
+    type,
+    quantity,
+    leverage,
+    slippage,
+    takeProfit,
+    stopLoss
+  };
+  
+  // Send to Engine via Redis Streams
+  const streamResult = await RedisStreams.addToRedisStream(
+    constant.redisStream,
+    orderPayload
+  );
+  
+  // Wait for Engine response with 3s timeout
+  const result = await RedisStreams.readNextFromRedisStream(
+    constant.secondaryRedisStream,
+    5000,
+    { requestId: streamResult.requestId }
+  );
+  
+  if (result && result.function === "createOrder") {
+    const orderResult = JSON.parse(result.message);
+    
+    if (orderResult.error) {
+      return res.status(400).json({ error: orderResult.error });
+    }
+    
+    res.json({
+      message: "Order created successfully",
+      orderId: orderResult.orderId,
+    });
+  }
+});
+```
+</CodeGroup>
+
+<Note>
+The Backend service uses a request/response pattern via Redis Streams. It sends a request with a unique `requestId`, then waits for a matching response on the secondary stream with a 5-second timeout.
+</Note>
+
+#### GET /api/v1/trade/open
+
+Retrieves all open orders for the authenticated user.
+
+<CodeGroup>
+```typescript apps/Backend/src/routes/trade.routes.ts
+tradeRouter.get("/open", authMiddleware, async (req: Request, res: Response) => {
+  const userId = req.user?.id;
+  const RedisStreams = req.app.locals.redisStreams;
+  
+  const streamResult = await RedisStreams.addToRedisStream(
+    constant.redisStream,
+    {
+      function: "getOpenOrder",
+      userId,
+    }
+  );
+  
+  const result = await RedisStreams.readNextFromRedisStream(
+    constant.secondaryRedisStream,
+    5000,
+    { requestId: streamResult.requestId }
+  );
+  
+  if (result && result.function === "getOpenOrder") {
+    res.json({ message: result.message });
+  }
+});
+```
+</CodeGroup>
+
+#### POST /api/v1/trade/close
+
+Closes an open trading position.
+
+<ParamField path="orderId" type="string" required>
+  ID of the order to close
+</ParamField>
+
+<CodeGroup>
+```typescript apps/Backend/src/routes/trade.routes.ts
+tradeRouter.post("/close", authMiddleware, async (req: Request, res: Response) => {
+  const { orderId } = req.body;
+  const userId = req.user?.id;
+  
+  const RedisStreams = req.app.locals.redisStreams;
+  const streamResult = await RedisStreams.addToRedisStream(
+    constant.redisStream,
+    {
+      function: "createCloseOrder",
+      orderId,
+      userId,
+    }
+  );
+  
+  const result = await RedisStreams.readNextFromRedisStream(
+    constant.secondaryRedisStream,
+    5000,
+    { requestId: streamResult.requestId }
+  );
+  
+  if (result && result.function === "createCloseOrder") {
+    const orderData = JSON.parse(result.message);
+    
+    if (orderData.error) {
+      return res.status(400).json({ error: orderData.error });
+    }
+    
+    res.json({ 
+      message: "Order closed successfully",
+      order: orderData 
+    });
+  }
+});
+```
+</CodeGroup>
+
+### Balance Routes
+
+#### GET /api/v1/balance
+
+Retrieves the user's current balance from the database.
+
+<CodeGroup>
+```typescript apps/Backend/src/routes/balance.routes.ts
+balanceRouter.get("/", authMiddleware, async (req: Request, res: Response) => {
+  const userId = req.user?.id;
+  
+  // Fetch balance directly from database
+  const user = await prisma.user.findUnique({
+    where: { userID: userId },
+  });
+  
+  if (!user) {
+    return res.status(404).json({
+      status: "error",
+      message: "User not found",
+    });
+  }
+  
+  const balance = user.balance ?? 0;
+  
+  return res.json({
+    status: "success",
+    message: balance,
+  });
+});
+```
+</CodeGroup>
+
+### Asset Routes
+
+#### GET /api/v1/supportedAssets
+
+Returns list of supported trading assets.
+
+<CodeGroup>
+```typescript apps/Backend/src/routes/assets.routes.ts
+export const supportedAssets = [
+  {
+    symbol: "BTC",
+    name: "Bitcoin",
+    imageUrl: "https://img.freepik.com/...",
+  },
+  {
+    symbol: "ETH",
+    name: "Ethereum",
+    imageUrl: "https://encrypted-tbn0.gstatic.com/...",
+  },
+  {
+    symbol: "SOL",
+    name: "Solana",
+    imageUrl: "https://s2.coinmarketcap.com/...",
+  },
+];
+
+assetRouter.get('/', async (req: Request, res: Response) => {
+  res.json(supportedAssets);
+});
+```
+</CodeGroup>
+
+### Candle Data Routes
+
+#### GET /api/v1/candles
+
+Retrieves candlestick (OHLCV) data from TimescaleDB for chart visualization.
+
+<ParamField query="symbol" type="string" required>
+  Trading pair symbol (BTCUSDT, ETHUSDT, SOLUSDT)
+</ParamField>
+
+<ParamField query="interval" type="string" required>
+  Candle interval: 1m, 5m, 15m, 30m, 1h, 4h, 1d
+</ParamField>
+
+<CodeGroup>
+```typescript apps/Backend/src/routes/candles.routes.ts
+const allowedIntervals = ["1m", "5m", "15m", "30m", "1h", "4h", "1d"];
+
+export const getCandles = async (req: Request, res: Response) => {
+  const { symbol, interval } = req.query;
+  
+  if (!symbol || !interval) {
+    return res.status(400).json({ 
+      error: "Missing required query parameters: symbol and interval" 
+    });
+  }
+  
+  if (!allowedIntervals.includes(interval as string)) {
+    return res.status(400).json({ 
+      error: "Invalid interval value", 
+      allowedIntervals 
+    });
+  }
+  
+  const dbSymbol = symbolMapping[symbol.toUpperCase()] || symbol;
+  const { from, to } = getTimeRange(interval as string);
+  
+  const data = await retrieveData(dbSymbol, interval as string, from, to);
+  
+  return res.json({
+    symbol,
+    dbSymbol,
+    interval,
+    from,
+    to,
+    count: data.length,
+    data,
+  });
+};
+```
+</CodeGroup>
+
+## Data Flow
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Backend
+    participant Redis
+    participant Engine
+    participant Database
+
+    Client->>Backend: POST /api/v1/trade/create
+    Backend->>Redis: addToRedisStream(createOrder)
+    Redis->>Engine: Stream message
+    Engine->>Database: Validate balance
+    Engine->>Database: Deduct margin
+    Engine->>Redis: addToRedisStream(response)
+    Redis->>Backend: Response with orderId
+    Backend->>Client: Order confirmation
+```
+
+## Configuration
+
+### Environment Variables
+
+<ParamField path="PORT" type="number" default="8000">
+  HTTP server port
+</ParamField>
+
+<ParamField path="REDIS_URL" type="string" required>
+  Redis connection URL (e.g., redis://localhost:6379)
+</ParamField>
+
+<ParamField path="DATABASE_URL" type="string" required>
+  PostgreSQL connection string for Prisma
+</ParamField>
+
+<ParamField path="JWT_SECRET" type="string" required>
+  Secret key for JWT token signing
+</ParamField>
+
+<ParamField path="FRONTEND_URL" type="string" required>
+  Frontend application URL for redirects
+</ParamField>
+
+<ParamField path="BACKEND_URL" type="string" required>
+  Backend API URL for email verification links
+</ParamField>
+
+## Deployment
+
+### Docker Configuration
+
+<CodeGroup>
+```yaml docker-compose.yml
+backend:
+  build:
+    context: .
+    dockerfile: apps/docker/Backend.Dockerfile
+  container_name: exness-backend
+  environment:
+    REDIS_URL: redis://redis:6379
+    TIMESCALE_DB_HOST: timescaledb
+    DATABASE_URL: postgresql://postgresql:postgresql@postgres:5432/exness
+    FRONTEND_URL: http://localhost:3001
+    BACKEND_URL: http://localhost:8000
+  ports:
+    - "8000:8000"
+  depends_on:
+    postgres:
+      condition: service_healthy
+    timescaledb:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  restart: unless-stopped
+```
+</CodeGroup>
+
+<Warning>
+The Backend service must wait for Postgres, TimescaleDB, and Redis to be healthy before starting. The docker-compose configuration ensures this dependency order.
+</Warning>
+
+## Security Features
+
+### Helmet.js Configuration
+
+The service implements security headers using Helmet with custom CSP:
+
+<CodeGroup>
+```typescript apps/Backend/src/index.ts
+app.use(
+  helmet.contentSecurityPolicy({
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "http://localhost:8000"],
+      connectSrc: ["'self'", "http://localhost:8000"],
+    },
+  })
+);
+```
+</CodeGroup>
+
+### Authentication Middleware
+
+All protected routes use JWT authentication middleware that validates tokens and extracts user information.
+
+<Note>
+Tokens expire after a configurable period. Clients must handle token refresh or re-authentication.
+</Note>
+
+## Performance Considerations
+
+- **Request Timeouts**: Redis Stream operations have 5-second timeouts to prevent hung connections
+- **Payload Limits**: JSON body parser limited to 10MB for batch operations
+- **Connection Pooling**: Shared Redis Streams client via `app.locals` prevents connection exhaustion
+
+## Related Services
+
+- [Trading Engine](/services/engine) - Processes order creation and management
+- [Database Storage](/services/database-storage) - Persists closed orders
+- [WebSocket Server](/services/websocket-server) - Real-time price updates
+- [Price Poller](/services/price-poller) - Market price feed

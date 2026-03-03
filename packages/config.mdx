@@ -1,0 +1,479 @@
+---
+title: '@repo/config'
+description: Configuration management with environment variables, Redis clients, and pub/sub utilities
+icon: 'gear'
+---
+
+The `@repo/config` package provides centralized configuration management, environment variable validation, and Redis client utilities for the Exness Trading Platform.
+
+## Installation
+
+This package is internal to the monorepo and installed automatically:
+
+```json
+"dependencies": {
+  "@repo/config": "workspace:*"
+}
+```
+
+## Features
+
+- **Environment Validation**: Zod-based schema validation for environment variables
+- **Redis Client**: Simple Redis list operations (push/pop)
+- **Pub/Sub Client**: Redis publish/subscribe pattern implementation
+- **Redis Streams**: Advanced stream processing with consumer groups
+- **Constants**: Shared constant values for channel names
+
+## Environment Configuration
+
+The package validates and exports environment variables using Zod schemas.
+
+### Available Configuration
+
+<ParamField path="config.REDIS_URL" type="string" required>
+  Redis connection URL
+</ParamField>
+
+<ParamField path="config.BINANCE_WS_URL" type="string" required>
+  Binance WebSocket URL for market data
+</ParamField>
+
+<ParamField path="config.TIMESCALE_DB_USER" type="string" required>
+  TimescaleDB username
+</ParamField>
+
+<ParamField path="config.TIMESCALE_DB_PASSWORD" type="string" required>
+  TimescaleDB password
+</ParamField>
+
+<ParamField path="config.TIMESCALE_DB_HOST" type="string" required>
+  TimescaleDB host address
+</ParamField>
+
+<ParamField path="config.TIMESCALE_DB_PORT" type="number" required>
+  TimescaleDB port number
+</ParamField>
+
+<ParamField path="config.TIMESCALE_DB_NAME" type="string" required>
+  TimescaleDB database name
+</ParamField>
+
+<ParamField path="config.DATABASE_URL" type="string" required>
+  PostgreSQL connection URL for Prisma
+</ParamField>
+
+<ParamField path="config.MONGODB_URL" type="string" required>
+  MongoDB connection URL
+</ParamField>
+
+<ParamField path="config.JWT_SECRET" type="string" required>
+  Secret key for JWT token signing
+</ParamField>
+
+<ParamField path="config.PORT" type="number" required>
+  Application server port
+</ParamField>
+
+<ParamField path="config.WEBSOCKET_PORT" type="number" required>
+  WebSocket server port
+</ParamField>
+
+<ParamField path="config.FRONTEND_URL" type="string" required>
+  Frontend application URL
+</ParamField>
+
+<ParamField path="config.BACKEND_URL" type="string" required>
+  Backend API URL
+</ParamField>
+
+<ParamField path="config.NODE_ENV" type="string" required>
+  Node environment (development, production, test)
+</ParamField>
+
+<ParamField path="config.USER_EMAIL" type="string" required>
+  SMTP user email for notifications
+</ParamField>
+
+<ParamField path="config.USER_PASSWORD" type="string" required>
+  SMTP user password
+</ParamField>
+
+### Usage Example
+
+```typescript
+import { config } from '@repo/config';
+
+const server = Bun.serve({
+  port: config.PORT,
+  fetch(req) {
+    return new Response(`Server running on ${config.NODE_ENV}`);
+  }
+});
+
+console.log(`Listening on ${config.FRONTEND_URL}`);
+```
+
+## Redis Client
+
+Simple Redis client for list-based queue operations.
+
+### Creating a Redis Client
+
+```typescript
+import { redisClient, config } from '@repo/config';
+
+const redis = redisClient(config.REDIS_URL);
+await redis.connect();
+```
+
+### Methods
+
+<CodeGroup>
+```typescript connect()
+await redis.connect();
+// Connects to Redis and logs: "Redis connected at: <url>"
+```
+
+```typescript pushData()
+// Push data to a Redis list
+await redis.pushData('binance:trades', JSON.stringify({
+  symbol: 'BTCUSDT',
+  price: 50000,
+  timestamp: Date.now()
+}));
+```
+
+```typescript popData()
+// Pop data from a Redis list
+const data = await redis.popData('binance:trades');
+if (data) {
+  const trade = JSON.parse(data);
+  console.log(trade);
+}
+```
+
+```typescript disconnect()
+await redis.disconnect();
+```
+</CodeGroup>
+
+## Pub/Sub Client
+
+Redis publish/subscribe pattern for real-time messaging.
+
+### Creating a Pub/Sub Client
+
+```typescript
+import { pubsubClient, config } from '@repo/config';
+
+const pubsub = pubsubClient(config.REDIS_URL);
+await pubsub.connect();
+```
+
+### Publishing Messages
+
+```typescript
+import { constant } from '@repo/config';
+
+// Publish a message to a channel
+await pubsub.publish(
+  constant.pubsubKey,
+  JSON.stringify({ event: 'price_update', symbol: 'BTC', price: 50000 })
+);
+```
+
+### Subscribing to Messages
+
+```typescript
+// Subscribe to a channel with a callback
+await pubsub.subscriber(constant.pubsubKey, (data) => {
+  console.log('Received:', data);
+  // Handle the parsed message
+  if (data.event === 'price_update') {
+    updatePrice(data.symbol, data.price);
+  }
+});
+```
+
+<Info>
+The subscriber automatically parses JSON messages. If parsing fails, an error is logged.
+</Info>
+
+## Redis Streams
+
+Advanced Redis Streams implementation with consumer groups and correlation IDs.
+
+### Creating a Streams Client
+
+```typescript
+import { redisStreams, config, constant } from '@repo/config';
+
+const streams = redisStreams(config.REDIS_URL);
+await streams.connect();
+```
+
+### Adding Messages to Streams
+
+```typescript
+// Add a message with automatic request ID
+const result = await streams.addToRedisStream(
+  constant.redisStream,
+  {
+    symbol: 'BTCUSDT',
+    action: 'buy',
+    quantity: 1.5
+  }
+);
+
+console.log(`Message ID: ${result.messageId}`);
+console.log(`Request ID: ${result.requestId}`);
+```
+
+### Reading from Streams (Simple)
+
+```typescript
+// Continuous reading with callback
+await streams.readRedisStream(
+  constant.redisStream,
+  (message) => {
+    console.log('Received:', message);
+    // Process the message
+  }
+);
+```
+
+### Reading Next Message (Promise-based)
+
+<Tabs>
+  <Tab title="Basic Usage">
+    ```typescript
+    // Read the next message (blocks until available)
+    const message = await streams.readNextFromRedisStream(
+      constant.redisStream,
+      0 // Block indefinitely
+    );
+    
+    if (message) {
+      console.log('Next message:', message);
+    }
+    ```
+  </Tab>
+  
+  <Tab title="With Request ID">
+    ```typescript
+    // Filter by correlation ID (request tracking)
+    const { requestId } = await streams.addToRedisStream(
+      constant.redisStream,
+      { action: 'place_order' }
+    );
+    
+    // Read response with matching requestId
+    const response = await streams.readNextFromRedisStream(
+      constant.secondaryRedisStream,
+      5000, // 5 second timeout
+      { requestId }
+    );
+    
+    console.log('Response:', response);
+    ```
+  </Tab>
+  
+  <Tab title="Consumer Groups">
+    ```typescript
+    // Use consumer groups for distributed processing
+    const message = await streams.readNextFromRedisStream(
+      constant.redisStream,
+      0,
+      {
+        consumerGroup: 'order-processors',
+        consumerName: 'processor-1'
+      }
+    );
+    
+    // Message is automatically acknowledged after reading
+    if (message) {
+      processOrder(message);
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Consumer Groups
+
+Consumer groups allow multiple consumers to process messages from the same stream:
+
+```typescript
+// Create/ensure consumer group exists
+await streams.ensureConsumerGroup(
+  constant.redisStream,
+  'trade-processors'
+);
+
+// Consumer 1
+const consumer1 = redisStreams(config.REDIS_URL);
+await consumer1.connect();
+const msg1 = await consumer1.readNextFromRedisStream(
+  constant.redisStream,
+  0,
+  { consumerGroup: 'trade-processors', consumerName: 'worker-1' }
+);
+
+// Consumer 2 (processes different messages)
+const consumer2 = redisStreams(config.REDIS_URL);
+await consumer2.connect();
+const msg2 = await consumer2.readNextFromRedisStream(
+  constant.redisStream,
+  0,
+  { consumerGroup: 'trade-processors', consumerName: 'worker-2' }
+);
+```
+
+<Warning>
+Messages are automatically acknowledged (ACK'd) after being read when using consumer groups.
+</Warning>
+
+## Constants
+
+Predefined constant values for channel and stream names:
+
+```typescript
+import { constant } from '@repo/config';
+
+// Available constants
+constant.pubsubKey              // "binance:pubsub"
+constant.redisStream            // "stream:exness"
+constant.secondaryRedisStream   // "stream:exnessReceive"
+constant.redisQueue             // "binance:trades"
+constant.dbStorageStream        // "stream:dbStorage"
+```
+
+### Usage Example
+
+```typescript
+import { redisClient, pubsubClient, constant, config } from '@repo/config';
+
+const redis = redisClient(config.REDIS_URL);
+await redis.connect();
+
+// Use consistent channel names
+await redis.pushData(constant.redisQueue, tradeData);
+
+const pubsub = pubsubClient(config.REDIS_URL);
+await pubsub.connect();
+await pubsub.publish(constant.pubsubKey, notification);
+```
+
+## Complete Example
+
+Here's a complete example combining multiple features:
+
+```typescript
+import { 
+  config, 
+  redisStreams, 
+  pubsubClient, 
+  constant 
+} from '@repo/config';
+
+// Initialize clients
+const streams = redisStreams(config.REDIS_URL);
+const pubsub = pubsubClient(config.REDIS_URL);
+
+await streams.connect();
+await pubsub.connect();
+
+// Subscribe to price updates via pub/sub
+await pubsub.subscriber(constant.pubsubKey, async (priceData) => {
+  console.log('Price update:', priceData);
+  
+  // Store in stream for processing
+  const { requestId } = await streams.addToRedisStream(
+    constant.redisStream,
+    {
+      type: 'price_update',
+      ...priceData
+    }
+  );
+  
+  console.log(`Stored with request ID: ${requestId}`);
+});
+
+// Process stream messages with consumer group
+while (true) {
+  const message = await streams.readNextFromRedisStream(
+    constant.redisStream,
+    0,
+    {
+      consumerGroup: 'price-processors',
+      consumerName: `worker-${config.PORT}`
+    }
+  );
+  
+  if (message && message.type === 'price_update') {
+    // Process the price update
+    await processPriceUpdate(message);
+    
+    // Send response back
+    await streams.addToRedisStream(
+      constant.secondaryRedisStream,
+      {
+        requestId: message.requestId,
+        status: 'processed',
+        timestamp: new Date().toISOString()
+      }
+    );
+  }
+}
+
+// Cleanup
+process.on('SIGTERM', async () => {
+  await streams.disconnect();
+  await pubsub.disconnect();
+});
+```
+
+## API Reference
+
+### redisClient(url: string)
+
+Creates a Redis client for list operations.
+
+**Methods:**
+- `connect()`: Connect to Redis
+- `pushData(channel: string, message: string)`: Push to list
+- `popData(channel: string)`: Pop from list
+- `disconnect()`: Close connection
+
+### pubsubClient(url: string)
+
+Creates a Redis pub/sub client.
+
+**Methods:**
+- `connect()`: Connect to Redis
+- `publish(channel: string, message: string)`: Publish message
+- `subscriber(channel: string, callback: (data: any) => void)`: Subscribe with callback
+- `disconnect()`: Close connection
+
+### redisStreams(url: string)
+
+Creates a Redis Streams client with consumer group support.
+
+**Methods:**
+- `connect()`: Connect to Redis
+- `addToRedisStream(streamName: string, data: Record<string, any>)`: Add message
+- `readRedisStream(streamKey: string, callback: (msg: any) => void)`: Continuous read
+- `readNextFromRedisStream(streamName: string, blockMs?: number, options?)`: Promise-based read
+- `ensureConsumerGroup(streamName: string, groupName: string)`: Create consumer group
+- `disconnect()`: Close connection
+
+## Related Packages
+
+<CardGroup cols={2}>
+  <Card title="@repo/timescaledb" icon="chart-line" href="/packages/timescaledb">
+    Uses config for TimescaleDB connection settings
+  </Card>
+  
+  <Card title="@repo/utils" icon="wrench" href="/packages/utils">
+    Uses config for email service credentials
+  </Card>
+</CardGroup>

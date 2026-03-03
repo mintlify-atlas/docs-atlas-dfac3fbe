@@ -1,0 +1,448 @@
+---
+title: '@repo/types'
+description: Shared TypeScript type definitions used across the Exness Trading Platform
+icon: 'code'
+---
+
+The `@repo/types` package provides shared TypeScript type definitions that ensure type safety and consistency across all applications in the monorepo.
+
+## Installation
+
+This package is internal to the monorepo and installed automatically:
+
+```json
+"dependencies": {
+  "@repo/types": "workspace:*"
+}
+```
+
+## Features
+
+- **Type Safety**: Shared types prevent inconsistencies across services
+- **Zero Runtime**: Pure TypeScript types with no runtime overhead
+- **Centralized Definitions**: Single source of truth for data structures
+- **IDE Support**: Full IntelliSense and autocomplete support
+
+## Available Types
+
+### PriceUpdate
+
+Represents a real-time price update from market data feeds.
+
+```typescript
+export type PriceUpdate = {
+  asset: string;      // Trading pair symbol (e.g., "BTCUSDT")
+  price: number;      // Current market price
+  bidValue: number;   // Best bid price
+  askValue: number;   // Best ask price
+  decimal: number;    // Decimal precision for the asset
+};
+```
+
+## Usage Examples
+
+### Importing Types
+
+```typescript
+import { PriceUpdate } from '@repo/types';
+
+// Use in function signatures
+function handlePriceUpdate(update: PriceUpdate): void {
+  console.log(`${update.asset}: $${update.price}`);
+  console.log(`Spread: ${update.askValue - update.bidValue}`);
+}
+```
+
+### WebSocket Price Updates
+
+<CodeGroup>
+```typescript Server (Sending)
+import { PriceUpdate } from '@repo/types';
+import WebSocket from 'ws';
+
+const wss = new WebSocket.Server({ port: 8080 });
+
+wss.on('connection', (ws) => {
+  // Type-safe price update
+  const priceUpdate: PriceUpdate = {
+    asset: 'BTCUSDT',
+    price: 50000.00,
+    bidValue: 49999.50,
+    askValue: 50000.50,
+    decimal: 2
+  };
+  
+  ws.send(JSON.stringify(priceUpdate));
+});
+```
+
+```typescript Client (Receiving)
+import { PriceUpdate } from '@repo/types';
+
+const ws = new WebSocket('ws://localhost:8080');
+
+ws.onmessage = (event) => {
+  const update: PriceUpdate = JSON.parse(event.data);
+  
+  // TypeScript knows the shape of update
+  updatePriceDisplay(update.asset, update.price);
+  updateOrderBook(update.bidValue, update.askValue);
+};
+```
+</CodeGroup>
+
+### Redis Pub/Sub with Types
+
+```typescript
+import { PriceUpdate } from '@repo/types';
+import { pubsubClient, config, constant } from '@repo/config';
+
+const pubsub = pubsubClient(config.REDIS_URL);
+await pubsub.connect();
+
+// Publisher
+const publishPrice = async (update: PriceUpdate) => {
+  await pubsub.publish(
+    constant.pubsubKey,
+    JSON.stringify(update)
+  );
+};
+
+// Subscriber
+await pubsub.subscriber(constant.pubsubKey, (data) => {
+  // Type assertion for runtime data
+  const update = data as PriceUpdate;
+  
+  console.log(`Price update for ${update.asset}:`);
+  console.log(`  Price: $${update.price.toFixed(update.decimal)}`);
+  console.log(`  Bid: $${update.bidValue}`);
+  console.log(`  Ask: $${update.askValue}`);
+});
+```
+
+### React Components
+
+```typescript
+import { PriceUpdate } from '@repo/types';
+import { useState, useEffect } from 'react';
+
+interface PriceTickerProps {
+  symbol: string;
+}
+
+export function PriceTicker({ symbol }: PriceTickerProps) {
+  const [price, setPrice] = useState<PriceUpdate | null>(null);
+  
+  useEffect(() => {
+    const ws = new WebSocket(`ws://api.example.com/prices/${symbol}`);
+    
+    ws.onmessage = (event) => {
+      const update: PriceUpdate = JSON.parse(event.data);
+      setPrice(update);
+    };
+    
+    return () => ws.close();
+  }, [symbol]);
+  
+  if (!price) return <div>Loading...</div>;
+  
+  return (
+    <div>
+      <h2>{price.asset}</h2>
+      <p className="price">${price.price.toFixed(price.decimal)}</p>
+      <div className="spread">
+        <span>Bid: ${price.bidValue}</span>
+        <span>Ask: ${price.askValue}</span>
+      </div>
+    </div>
+  );
+}
+```
+
+### API Routes (Next.js)
+
+```typescript
+import { PriceUpdate } from '@repo/types';
+import { NextRequest, NextResponse } from 'next/server';
+
+export async function GET(request: NextRequest) {
+  const symbol = request.nextUrl.searchParams.get('symbol');
+  
+  // Fetch from market data provider
+  const marketData = await fetchMarketData(symbol);
+  
+  // Transform to PriceUpdate type
+  const priceUpdate: PriceUpdate = {
+    asset: marketData.symbol,
+    price: marketData.lastPrice,
+    bidValue: marketData.bestBid,
+    askValue: marketData.bestAsk,
+    decimal: getDecimalPrecision(symbol)
+  };
+  
+  return NextResponse.json(priceUpdate);
+}
+```
+
+### Backend Services
+
+```typescript
+import { PriceUpdate } from '@repo/types';
+import { redisStreams, config, constant } from '@repo/config';
+
+class PriceService {
+  private streams = redisStreams(config.REDIS_URL);
+  
+  async initialize() {
+    await this.streams.connect();
+  }
+  
+  async processPriceUpdate(rawData: any): Promise<void> {
+    // Validate and transform to PriceUpdate
+    const update: PriceUpdate = {
+      asset: rawData.s,  // Symbol from Binance
+      price: parseFloat(rawData.p),
+      bidValue: parseFloat(rawData.b),
+      askValue: parseFloat(rawData.a),
+      decimal: this.getDecimalPlaces(rawData.s)
+    };
+    
+    // Store in Redis stream
+    await this.streams.addToRedisStream(
+      constant.redisStream,
+      update
+    );
+    
+    // Broadcast to connected clients
+    this.broadcastToClients(update);
+  }
+  
+  private getDecimalPlaces(symbol: string): number {
+    const decimals: Record<string, number> = {
+      'BTCUSDT': 2,
+      'ETHUSDT': 2,
+      'SOLUSDT': 3
+    };
+    return decimals[symbol] || 2;
+  }
+  
+  private broadcastToClients(update: PriceUpdate): void {
+    // WebSocket broadcast implementation
+  }
+}
+```
+
+## Type Validation
+
+### Runtime Validation with Zod
+
+While the types package doesn't include runtime validation, you can combine it with Zod:
+
+```typescript
+import { PriceUpdate } from '@repo/types';
+import { z } from 'zod';
+
+// Create Zod schema matching the type
+const PriceUpdateSchema = z.object({
+  asset: z.string(),
+  price: z.number().positive(),
+  bidValue: z.number().positive(),
+  askValue: z.number().positive(),
+  decimal: z.number().int().min(0).max(8)
+}) satisfies z.ZodType<PriceUpdate>;
+
+// Validate runtime data
+function validatePriceUpdate(data: unknown): PriceUpdate {
+  return PriceUpdateSchema.parse(data);
+}
+
+// Usage
+try {
+  const update = validatePriceUpdate(incomingData);
+  // TypeScript knows update is PriceUpdate
+  processPriceUpdate(update);
+} catch (error) {
+  console.error('Invalid price update:', error);
+}
+```
+
+### Type Guards
+
+```typescript
+import { PriceUpdate } from '@repo/types';
+
+function isPriceUpdate(data: any): data is PriceUpdate {
+  return (
+    typeof data === 'object' &&
+    typeof data.asset === 'string' &&
+    typeof data.price === 'number' &&
+    typeof data.bidValue === 'number' &&
+    typeof data.askValue === 'number' &&
+    typeof data.decimal === 'number'
+  );
+}
+
+// Usage
+const data = JSON.parse(message);
+if (isPriceUpdate(data)) {
+  // TypeScript knows data is PriceUpdate
+  console.log(`${data.asset}: $${data.price}`);
+} else {
+  console.error('Invalid data format');
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always import from @repo/types">
+    Never duplicate type definitions across applications. Always import from the shared types package:
+    
+    ```typescript
+    // Good
+    import { PriceUpdate } from '@repo/types';
+    
+    // Bad - duplicating the type
+    type PriceUpdate = { asset: string; price: number; ... };
+    ```
+  </Accordion>
+  
+  <Accordion title="Use types for API contracts">
+    Define shared types for API request/response bodies to ensure consistency between frontend and backend:
+    
+    ```typescript
+    // Add to @repo/types
+    export type PlaceOrderRequest = {
+      symbol: string;
+      side: 'buy' | 'sell';
+      quantity: number;
+      price: number;
+    };
+    
+    // Use in both frontend and backend
+    ```
+  </Accordion>
+  
+  <Accordion title="Add JSDoc comments">
+    Document types with JSDoc for better IDE support:
+    
+    ```typescript
+    /**
+     * Represents a real-time price update from market data feeds.
+     * Includes bid/ask spread and decimal precision.
+     */
+    export type PriceUpdate = {
+      /** Trading pair symbol (e.g., "BTCUSDT") */
+      asset: string;
+      // ... rest of type
+    };
+    ```
+  </Accordion>
+  
+  <Accordion title="Keep types simple and focused">
+    Each type should represent a single concept. Create separate types for different use cases:
+    
+    ```typescript
+    // Good - focused types
+    type PriceUpdate = { ... };
+    type OrderRequest = { ... };
+    type TradeHistory = { ... };
+    
+    // Avoid - kitchen sink type
+    type Everything = { prices: ..., orders: ..., trades: ... };
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Extending Types
+
+### Creating Derived Types
+
+```typescript
+import { PriceUpdate } from '@repo/types';
+
+// Extend with additional properties
+type EnrichedPriceUpdate = PriceUpdate & {
+  timestamp: Date;
+  source: 'binance' | 'coinbase';
+  volumeUSD: number;
+};
+
+// Pick specific properties
+type SimplePriceUpdate = Pick<PriceUpdate, 'asset' | 'price'>;
+
+// Make properties optional
+type PartialPriceUpdate = Partial<PriceUpdate>;
+```
+
+### Union Types
+
+```typescript
+import { PriceUpdate } from '@repo/types';
+
+type WebSocketMessage =
+  | { type: 'price'; data: PriceUpdate }
+  | { type: 'trade'; data: TradeData }
+  | { type: 'orderbook'; data: OrderBookData };
+
+function handleMessage(msg: WebSocketMessage) {
+  switch (msg.type) {
+    case 'price':
+      // TypeScript knows msg.data is PriceUpdate
+      handlePriceUpdate(msg.data);
+      break;
+    // ... other cases
+  }
+}
+```
+
+## Testing with Types
+
+```typescript
+import { PriceUpdate } from '@repo/types';
+import { describe, test, expect } from 'bun:test';
+
+describe('Price Update Processing', () => {
+  test('processes valid price update', () => {
+    const update: PriceUpdate = {
+      asset: 'BTCUSDT',
+      price: 50000,
+      bidValue: 49999.50,
+      askValue: 50000.50,
+      decimal: 2
+    };
+    
+    const result = processPriceUpdate(update);
+    expect(result).toBeDefined();
+  });
+  
+  test('calculates spread correctly', () => {
+    const update: PriceUpdate = {
+      asset: 'ETHUSDT',
+      price: 3000,
+      bidValue: 2999.90,
+      askValue: 3000.10,
+      decimal: 2
+    };
+    
+    const spread = calculateSpread(update);
+    expect(spread).toBe(0.20);
+  });
+});
+```
+
+## Related Packages
+
+<CardGroup cols={2}>
+  <Card title="@repo/config" icon="gear" href="/packages/config">
+    Uses types for configuration validation
+  </Card>
+  
+  <Card title="@repo/db" icon="database" href="/packages/database">
+    Prisma generates database types
+  </Card>
+  
+  <Card title="@repo/utils" icon="wrench" href="/packages/utils">
+    May use shared types for utility functions
+  </Card>
+</CardGroup>
