@@ -1,0 +1,197 @@
+---
+title: 'Ensure User Creation'
+api: 'POST /api/v1/auth/ensure-user'
+description: 'Ensure a user is created in Engine and Database Storage services'
+---
+
+Forces the creation of a user in the Engine and Database Storage services. This endpoint is useful for ensuring a user exists across all system components, even if they were already in the database.
+
+## Authentication
+
+This endpoint requires authentication via JWT token in the Authorization header.
+
+```
+Authorization: Bearer <your_jwt_token>
+```
+
+## Request Body
+
+This endpoint does not accept a request body. The user ID and email are extracted from the JWT token.
+
+## Response
+
+<ResponseField name="success" type="boolean">
+  Indicates if the operation was successful
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Description of the result
+</ResponseField>
+
+## Examples
+
+### Successful Request
+
+<CodeGroup>
+```bash cURL
+curl -X POST "http://localhost:8000/api/v1/auth/ensure-user" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+```javascript JavaScript
+const ensureUser = async (token) => {
+  const response = await fetch('http://localhost:8000/api/v1/auth/ensure-user', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+  
+  const data = await response.json();
+  return data;
+};
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    'http://localhost:8000/api/v1/auth/ensure-user',
+    headers={'Authorization': f'Bearer {your_token}'}
+)
+
+result = response.json()
+print(result)
+```
+</CodeGroup>
+
+<ResponseExample>
+```json User Ensured
+{
+  "success": true,
+  "message": "User ensured in Engine and DBStorage"
+}
+```
+</ResponseExample>
+
+### User Creation Initiated
+
+<ResponseExample>
+```json Creation Initiated
+{
+  "success": true,
+  "message": "User creation initiated"
+}
+```
+</ResponseExample>
+
+## Error Responses
+
+### Error: No Token Provided
+
+<ResponseExample>
+```json No Token
+{
+  "error": "No token provided."
+}
+```
+</ResponseExample>
+
+### Error: Invalid Token
+
+<ResponseExample>
+```json Invalid Token
+{
+  "error": "Invalid or expired token."
+}
+```
+</ResponseExample>
+
+### Error: Invalid Token Payload
+
+<ResponseExample>
+```json Invalid Payload
+{
+  "error": "Invalid token payload."
+}
+```
+</ResponseExample>
+
+### Error: Failed to Ensure User
+
+<ResponseExample>
+```json Server Error
+{
+  "error": "Failed to ensure user, but request was sent to Engine"
+}
+```
+</ResponseExample>
+
+## Implementation Details
+
+This endpoint:
+
+1. **Extracts User Info**: Gets user ID and email from the JWT token
+2. **Sends Creation Request**: Always sends a `createUser` message to Redis Streams
+3. **Waits for Response**: Waits up to 5 seconds for confirmation from the Engine
+4. **Returns Status**: Confirms whether the user was ensured in all services
+
+### Difference from verify-user
+
+Unlike `/verify-user`, this endpoint **always** sends the user creation request to the Engine, regardless of whether the user exists in the database. This ensures consistency across all system components.
+
+## Use Cases
+
+### System Recovery
+
+Use this endpoint to recover from system inconsistencies where a user exists in the database but not in the Engine:
+
+```javascript
+const recoverUserState = async (token) => {
+  try {
+    const result = await fetch('http://localhost:8000/api/v1/auth/ensure-user', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    
+    const data = await result.json();
+    
+    if (data.success) {
+      console.log('User state synchronized across all services');
+      return true;
+    }
+    
+    return false;
+  } catch (error) {
+    console.error('Failed to ensure user:', error);
+    return false;
+  }
+};
+```
+
+### First-Time Setup
+
+Call this endpoint during user onboarding to ensure the user is properly initialized:
+
+```javascript
+const onboardNewUser = async (token) => {
+  // Step 1: Ensure user is created in all services
+  const ensureResult = await fetch('http://localhost:8000/api/v1/auth/ensure-user', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  
+  if (!ensureResult.ok) {
+    throw new Error('Failed to initialize user');
+  }
+  
+  // Step 2: Proceed with onboarding
+  return { ready: true };
+};
+```
+
+## Related Endpoints
+
+- [Login](/api/auth/login) - Initiate authentication flow
+- [Verify](/api/auth/verify) - Complete email verification
+- [Verify User](/api/auth/verify-user) - Check if user exists

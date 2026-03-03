@@ -69,7 +69,9 @@
             "group": "Authentication",
             "pages": [
               "api/auth/login",
-              "api/auth/verify"
+              "api/auth/verify",
+              "api/auth/verify-user",
+              "api/auth/ensure-user"
             ]
           },
           {
@@ -77,7 +79,8 @@
             "pages": [
               "api/trade/create-order",
               "api/trade/close-order",
-              "api/trade/get-orders"
+              "api/trade/get-orders",
+              "api/trade/get-closed-orders"
             ]
           },
           {

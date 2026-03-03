@@ -1,0 +1,203 @@
+---
+title: 'Get Closed Orders'
+api: 'GET /api/v1/trade/close'
+description: 'Retrieve historical closed trading orders for the authenticated user'
+---
+
+Retrieves a list of all closed trading orders for the authenticated user from the database. This endpoint provides access to your complete trading history including profit/loss data.
+
+## Authentication
+
+This endpoint requires authentication via JWT token in the Authorization header.
+
+```
+Authorization: Bearer <your_jwt_token>
+```
+
+## Query Parameters
+
+This endpoint does not accept any query parameters. It automatically returns all closed orders for the authenticated user.
+
+## Response
+
+<ResponseField name="message" type="array">
+  Array of closed orders
+  
+  <ResponseField name="message[].orderId" type="string">
+    Unique identifier for the order
+  </ResponseField>
+  
+  <ResponseField name="message[].userId" type="string">
+    User ID who placed the order
+  </ResponseField>
+  
+  <ResponseField name="message[].symbol" type="string">
+    Trading pair symbol (btc, eth, sol)
+  </ResponseField>
+  
+  <ResponseField name="message[].type" type="string">
+    Order type (buy or sell)
+  </ResponseField>
+  
+  <ResponseField name="message[].quantity" type="number">
+    Amount of cryptocurrency traded
+  </ResponseField>
+  
+  <ResponseField name="message[].leverage" type="integer">
+    Leverage multiplier used (1-100)
+  </ResponseField>
+  
+  <ResponseField name="message[].openPrice" type="number">
+    Price at which the order was opened
+  </ResponseField>
+  
+  <ResponseField name="message[].closePrice" type="number">
+    Price at which the order was closed
+  </ResponseField>
+  
+  <ResponseField name="message[].openTime" type="string">
+    Timestamp when the order was opened (ISO 8601)
+  </ResponseField>
+  
+  <ResponseField name="message[].closeTime" type="string">
+    Timestamp when the order was closed (ISO 8601)
+  </ResponseField>
+  
+  <ResponseField name="message[].profitLoss" type="number">
+    Realized profit or loss from the trade
+  </ResponseField>
+  
+  <ResponseField name="message[].takeProfit" type="number | null">
+    Take profit price level (if set)
+  </ResponseField>
+  
+  <ResponseField name="message[].stopLoss" type="number | null">
+    Stop loss price level (if set)
+  </ResponseField>
+</ResponseField>
+
+## Examples
+
+### Successful Request
+
+<CodeGroup>
+```bash cURL
+curl -X GET "http://localhost:8000/api/v1/trade/close" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+```javascript JavaScript
+const response = await fetch('http://localhost:8000/api/v1/trade/close', {
+  method: 'GET',
+  headers: {
+    'Authorization': `Bearer ${yourToken}`
+  }
+});
+
+const data = await response.json();
+console.log('Closed orders:', data.message);
+```
+
+```python Python
+import requests
+
+response = requests.get(
+    'http://localhost:8000/api/v1/trade/close',
+    headers={'Authorization': f'Bearer {your_token}'}
+)
+
+closed_orders = response.json()['message']
+print(f'Found {len(closed_orders)} closed orders')
+```
+</CodeGroup>
+
+<ResponseExample>
+```json Success Response
+{
+  "message": [
+    {
+      "orderId": "550e8400-e29b-41d4-a716-446655440000",
+      "userId": "user-123",
+      "symbol": "btc",
+      "type": "buy",
+      "quantity": 0.5,
+      "leverage": 10,
+      "openPrice": 45000.00,
+      "closePrice": 46000.00,
+      "openTime": "2024-03-01T10:00:00.000Z",
+      "closeTime": "2024-03-01T11:30:00.000Z",
+      "profitLoss": 500.00,
+      "takeProfit": 47000.00,
+      "stopLoss": 44000.00
+    }
+  ]
+}
+```
+</ResponseExample>
+
+## Error Responses
+
+### Error: Unauthorized
+
+<ResponseExample>
+```json Unauthorized
+{
+  "error": "Unauthorized"
+}
+```
+</ResponseExample>
+
+### Error: Token Expired
+
+<ResponseExample>
+```json Token expired or invalid
+{
+  "error": "Token expired or invalid ❌"
+}
+```
+</ResponseExample>
+
+## Use Cases
+
+### Trading Performance Analysis
+
+```javascript
+const analyzeTradingPerformance = async (token) => {
+  const response = await fetch('http://localhost:8000/api/v1/trade/close', {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  
+  const { message: orders } = await response.json();
+  
+  const totalPnL = orders.reduce((sum, order) => sum + order.profitLoss, 0);
+  const winRate = orders.filter(o => o.profitLoss > 0).length / orders.length;
+  const avgProfit = totalPnL / orders.length;
+  
+  return { totalPnL, winRate, avgProfit, totalTrades: orders.length };
+};
+```
+
+### Export Trading History
+
+```javascript
+const exportTradingHistory = async (token) => {
+  const response = await fetch('http://localhost:8000/api/v1/trade/close', {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+  
+  const { message: orders } = await response.json();
+  
+  // Convert to CSV
+  const csv = orders.map(o => 
+    `${o.orderId},${o.symbol},${o.type},${o.quantity},${o.openPrice},${o.closePrice},${o.profitLoss}`
+  ).join('\n');
+  
+  return csv;
+};
+```
+
+## Related Endpoints
+
+- [Create Order](/api/trade/create-order) - Open a new trading position
+- [Close Order](/api/trade/close-order) - Close an active position
+- [Get Open Orders](/api/trade/get-orders) - View currently active orders
